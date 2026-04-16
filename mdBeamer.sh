@@ -19,7 +19,7 @@ mkdir -p $tmpDir
 echo tmpDir: $tmpDir
 echo inDir: $inDir
 
-texFile=$tmpDir/${inFile%.md}.tex
 outFile=$inDir/${inFile%.md}.pdf
+texFile=$outDir/${inFile%.md}.tex
 
 python3 $mdTranslator  $inFile -o $texFile $* && $texCompiler --output-directlry=$outDir $texFile  && atril $outFile

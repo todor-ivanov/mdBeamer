@@ -15,7 +15,17 @@ test/*.log
 test/*.nav
 test/*.out
 test/*.snm
-test/*.tex
 test/*.toc
 test/*.vrb
-test/*.pdf
+# test/*.tex
+# test/*.pdf
+
+./*.aux
+./*.log
+./*.nav
+./*.out
+./*.snm
+./*.tex
+./*.toc
+./*.vrb
+./*.pdf

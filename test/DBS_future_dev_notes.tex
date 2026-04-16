@@ -1,0 +1,191 @@
+\PassOptionsToPackage{table}{xcolor}
+\documentclass{beamer}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{multicol}
+\usepackage{ragged2e}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[utf8]{inputenc}
+  \usepackage[T1]{fontenc}
+\else
+  \usepackage{fontspec}
+  \setmonofont{DejaVu Sans Mono}
+\fi
+\usepackage{listings}
+
+\title{DBS/DAS possible future developments}
+\subtitle{Hybrid workflow management systems: CMS+DIRAC(X) or CMS+PAnda}
+\author{Todor Ivanov}
+\institute{University of Notre Dame}
+\date{18-03-2026}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true
+}
+
+\begin{document}
+
+\begin{frame}
+\titlepage
+\end{frame}
+\begin{frame}{Main assumptions}
+\begin{columns}[T]
+\begin{column}[T]{0.400\textwidth}
+\includegraphics[width=1.0\linewidth,height=0.95\textheight,keepaspectratio]{png/cms-data-model\_diagram\_01.png}
+\end{column}
+\begin{column}[T]{0.600\textwidth}
+\medskip
+\textbf{Main assumptions:}
+
+\begin{itemize}
+\item The CMS Data \texttt{model} does not change \textsuperscript{a}
+\item We implement the new system and do not change patterns on how we use the DATA Book keeping system:
+\begin{itemize}
+\item DBS - data discovery and resolution
+\item Rucio - data movement
+\end{itemize}
+\end{itemize}
+\end{column}
+\end{columns}
+\vspace{0.35em}
+{\tiny 
+\textsuperscript{a} https://github.com/todor-ivanov/CMSDiracAux
+}
+\end{frame}
+\begin{frame}[fragile]{Main assumptions}
+\medskip
+\textbf{Main assumptions:}
+
+\begin{columns}[T]
+\begin{column}[T]{0.600\textwidth}
+{\tiny
+\begin{lstlisting}[language=python,basicstyle=\ttfamily\huge,breaklines=true,columns=fullflexible,keepspaces=true,frame=single,framerule=0.4pt,rulecolor=\color{black!15},backgroundcolor=\color{black!3},framesep=4pt,aboveskip=4pt,belowskip=4pt]
+    if x:
+        print("we are here")
+
+\end{lstlisting}
+}
+{\small
+\begin{itemize}
+\item The CMS Data \texttt{model} does not change \textsuperscript{a}
+\item We implement the new system and do not change patterns on how we use the DATA Book keeping system:
+\begin{itemize}
+\item DBS - data discovery and resolution
+\item Rucio - data movement
+\end{itemize}
+\end{itemize}
+}
+\end{column}
+\begin{column}[T]{0.400\textwidth}
+\includegraphics[width=0.95\linewidth,height=0.75\textheight,keepaspectratio]{png/cms-data-model\_diagram\_01.png}
+\end{column}
+\end{columns}
+\vspace{0.35em}
+{\tiny 
+\textsuperscript{a} https://github.com/todor-ivanov/CMSDiracAux
+}
+\end{frame}
+\begin{frame}{Test column}
+\framesubtitle{Test Column}
+{\small
+\begin{itemize}
+\item The CMS Data \texttt{model} does not change\footnote{https://github.com/todor-ivanov/CMSDiracAux}
+\item We implement the new system and do not change patterns on how we use the DATA Book keeping system:
+\begin{itemize}
+\item DBS - data discovery and resolution
+\item Rucio - data movement
+\end{itemize}
+\end{itemize}
+\medskip
+{
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{center}
+\rowcolors{2}{black!4}{white}
+\begin{tabular}{cc}
+\rowcolor{black!12}
+\textbf{A} & \textbf{B} \\
+\hline
+42 & 17 \\
+89 & 63 \\
+25 & 74 \\
+\end{tabular}
+\end{center}
+}
+\medskip
+}
+\end{frame}
+\begin{frame}{First scenario}
+\begin{itemize}
+\item Possible Places of interaction with DBS/DAS and eventual code changes (under diff conditions)
+\begin{itemize}
+\item Read
+\item CMS+DIRAC:\footnote{}
+\begin{itemize}
+\item READ interactions:
+\textbf{-} in case the interaction between the systems (the CMS data resolution) happens through the DIRAC native DAtaPlacement system  (calls to Dirac Request manager + (or) Dirac File Catalog queries) - The code change should go inside the DIRAC system (not a good idea), but we do not know how extendable is this part of the DIRAC system (could it use a plugin based mechanism for adding extensions to the system similarly to the DIrac Transformations system) - The new component becomes native to the DIRAC system - the system does not evolve any more(may be impossible). Second obstacle - this approach means it would/should communicate with DBS/DAS  through its  protocol stack which is not HTTP API oriented (RPC calls etc.). - implies huge change on the DAS/DBS side
+\item WRITE interactions:
+\item At job batch completion - the interaction should be initiated from which ever BookKeepoing system is serving the purpose  - for both DIRAC and DIRACx
+\item alternative place of the change - at the translation layer interlinking the two systems - which means creating a parallel path for backpropagation completenss information and extra complication at the interlinking layer - CMSDiracAUX
+\end{itemize}
+\end{itemize}
+\end{itemize}
+( we are again talking about rebirth of WMBS)
+
+\begin{itemize}
+\item CMS+DIRACX:
+\begin{itemize}
+\item READ interactions: same logic as for CMS+DIRAC
+\end{itemize}
+\item CMS + Panda - give suggestions ..... no info so far
+\end{itemize}
+\end{frame}
+\begin{frame}{Second scenario}
+\medskip
+\textbf{Main assumption:}
+
+We evlove DAS to a full fledged data aggregation and access service
+
+\begin{itemize}
+\item The CMS Data model does not change
+\item We implement the new system and do not change patterns on how we use the DATA Book keeping system:
+\begin{itemize}
+\item DBS - data discovery and resolution
+\item Rucio - data movement
+\end{itemize}
+\end{itemize}
+\framesubtitle{Second scenario}
+\begin{itemize}
+\item DAS is already quering DBS and Rucio and is capable of providing full concept of data structure\&placement and already delivers reliable data discovery and resolution infrastructure in such approach
+\begin{itemize}
+\item we will heavily rely on DAS for this service, on all levels of workload granulrity - which means we  may start hitting it hard, so we may have to face scalability issues, but should not be unsolvable, since DAS is a thin layer infornt of DBS
+\item we will still use DBS for metadata records as before, which means the only direct queries to DBS would be write on block requests
+\item Rucio still serves th erole of DATA movement as is now. Nothing changes here
+\end{itemize}
+\end{itemize}
+\end{frame}
+\begin{frame}{Third scenario}
+\framesubtitle{Move entire DBS content to Rucio use the Rucio's capabilities to handle metadata}
+\begin{itemize}
+\item the same complexity introduction problem as the one which appears inside the Internal Representation layer for CMSDiracAux    
+\begin{itemize}
+\item abstrations mismatch
+\item GRanularity and Data storage levels mismatch - block/dataset misallignment yet again
+\item Possible match is the data contents - physics objects  should not be too diffrerent , but the qurestion remains how capable is Rucio for hanling metadata at levels gowing down to luminosity sections and events
+\item Possible scalability issues
+\end{itemize}
+\item the good part - the whole project immedeately transforms into a single OPS action - pooring the metadata  contents inside Rucio
+\end{itemize}
+BUT the long term operation remains
+
+\end{frame}
+\begin{frame}{Conclusions}
+MAIN MESSAGE: Provided the CMS data model does not change and the atomic unit still stays a luminosity section, no structural changes to the Data bookkeeping services are to be needed other than possible API interfaces evolution. It is not the job granularity and the way of we split the load over the data  which creates the pressure on DBS, It is the system level at which we initiate the interaction with DBS, because at different levels of the system we  we handle different levels of workload abstractions, which represent different workflow granularity and hence affect the frequency of  querying  and the amount of data transferred from the metadata system.
+
+\end{frame}
+\end{document}
