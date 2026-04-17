@@ -12,6 +12,7 @@
 
 ### Main assumptions:
 
+!Тестов текст на кирилица!
 
 - The CMS Data `model` does not change [^1]
 - We implement the new system and do not change patterns on how we use the DATA Book keeping system:

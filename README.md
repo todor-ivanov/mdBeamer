@@ -22,3 +22,29 @@ please open an issue in the repository.
 
 A simple script to allow quick translation from Markdown to Beamer and creating
 a heavily customized presentations using a specific template.
+
+## Usage:
+
+```
+usage: mdBeamer.py [-h] -o OUTPUT [--warnings WARNINGS] [--theme THEME] [--colortheme COLORTHEME] [--fonttheme FONTTHEME] [--innertheme INNERTHEME] [--outertheme OUTERTHEME]
+                   input_md
+
+positional arguments:
+  input_md
+
+options:
+  -h, --help            show this help message and exit
+  -o, --output OUTPUT
+  --warnings WARNINGS
+  --theme THEME
+  --colortheme COLORTHEME
+  --fonttheme FONTTHEME
+  --innertheme INNERTHEME
+  --outertheme OUTERTHEME
+```
+
+## Example:
+
+```
+./mdBeamer.sh test/DBS_future_dev_notes.md --theme Warsaw
+```
