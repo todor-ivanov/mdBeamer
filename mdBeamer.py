@@ -31,6 +31,7 @@ class Heading(Block):
     level: int
     text: str
     attrs: dict = field(default_factory=dict)
+    source_line: Optional[int] = None
 @dataclass
 class Paragraph(Block): lines: List[str]
 @dataclass
@@ -88,6 +89,14 @@ class Slide:
     title: Optional[str]
     body: List[Block]
     slide_fontsize: Optional[str] = None
+    title_level: int = 1
+    subtitle: Optional[Heading] = None
+    additional_subtitles: List[Heading] = field(default_factory=list)
+
+HEADING_SIZES = {
+    1: r"\Large", 2: r"\large", 3: r"\normalsize",
+    4: r"\small", 5: r"\footnotesize", 6: r"\scriptsize",
+}
 
 LATEX_SPECIALS = {'\\': r'\textbackslash{}','{': r'\{','}': r'\}','$': r'\$','&': r'\&','%': r'\%','#': r'\#','_': r'\_','^': r'\textasciicircum{}','~': r'\textasciitilde{}'}
 
@@ -384,7 +393,7 @@ class BlockParser:
         blocks = filtered_blocks
 
         inferred_slide_fontsize = None
-        title_heading = next((b for b in blocks if isinstance(b, Heading) and b.level == 1), None)
+        title_heading = blocks[0] if blocks and isinstance(blocks[0], Heading) else None
         if title_heading is not None:
             inferred_slide_fontsize = title_heading.attrs.get("fontsize")
 
@@ -395,11 +404,25 @@ class BlockParser:
             slide = Slide(title=None, body=[title_page], slide_fontsize=slide_fontsize)
             slide.footnotes = self.footnotes
             return slide
-        title = None; body: List[Block] = []
-        for block in blocks:
-            if title is None and isinstance(block, Heading) and block.level == 1: title = block.text
-            else: body.append(block)
-        slide = Slide(title=title, body=body, slide_fontsize=slide_fontsize)
+        subtitles = []
+        if title_heading is not None:
+            title_index = blocks.index(title_heading)
+            previous_line = title_heading.source_line
+            for candidate in blocks[title_index + 1:]:
+                # Blank lines separate the opening header from body headings.
+                # Heading level controls size, not membership in the header.
+                if (not isinstance(candidate, Heading) or previous_line is None
+                        or candidate.source_line != previous_line + 1):
+                    break
+                subtitles.append(candidate)
+                previous_line = candidate.source_line
+        header_ids = {id(b) for b in [title_heading, *subtitles]}
+        body = [b for b in blocks if id(b) not in header_ids]
+        slide = Slide(title=title_heading.text if title_heading is not None else None,
+                      body=body, slide_fontsize=slide_fontsize,
+                      title_level=title_heading.level if title_heading is not None else 1,
+                      subtitle=subtitles[0] if subtitles else None,
+                      additional_subtitles=subtitles[1:])
         slide.footnotes = self.footnotes
         slide = infer_columns_from_positioned_images(slide)
         return slide
@@ -497,9 +520,10 @@ class BlockParser:
                 blocks.append(self.parse_table()); continue
             hm = heading_match(line)
             if hm:
+                source_line = self.i
                 self.advance()
                 clean_text, attrs = parse_heading_info(hm[1])
-                blocks.append(Heading(hm[0], clean_text, attrs)); continue
+                blocks.append(Heading(hm[0], clean_text, attrs, source_line)); continue
             im = image_match(line.strip())
             if im:
                 self.advance()
@@ -612,6 +636,7 @@ class BeamerEmitter:
 \usepackage{array}
 \newlength{\mdBeamerTableWidth}
 \newlength{\mdBeamerTableContentWidth}
+\newcommand{\mdBeamerHeaderLine}[2]{{#1\strut#2}}
 \usepackage{iftex}
 \ifPDFTeX
   \usepackage[utf8]{inputenc}
@@ -657,23 +682,37 @@ class BeamerEmitter:
     def emit_slide(self, slide: Slide) -> str:
         title = escape_latex(slide.title) if slide.title else ""
         fragile = self.slide_requires_fragile(slide)
-        out = [rf"\begin{{frame}}[fragile]{{{title}}}" if slide.title and fragile else rf"\begin{{frame}}{{{title}}}" if slide.title else r"\begin{frame}[fragile]" if fragile else r"\begin{frame}"]
-        first_h2=False
+        # Beamer builds the header outside its frame-body group. Font settings
+        # made inside that body can disappear before the header is rendered.
+        # Keep them alive around the entire frame, without leaking to the next.
+        out = [r"\begingroup"]
+        if slide.title is not None:
+            out.append(rf"\setbeamerfont{{frametitle}}{{size={HEADING_SIZES[slide.title_level]}}}")
+        if slide.subtitle is not None:
+            out.append(rf"\setbeamerfont{{framesubtitle}}{{size={HEADING_SIZES[slide.subtitle.level]}}}")
+        out.append(rf"\begin{{frame}}[fragile]{{{title}}}" if slide.title and fragile else rf"\begin{{frame}}{{{title}}}" if slide.title else r"\begin{frame}[fragile]" if fragile else r"\begin{frame}")
         self.current_footnotes = getattr(slide, "footnotes", {})
         prev_size = self.current_fontsize
         slide_size = getattr(slide, "slide_fontsize", None)
         if slide_size:
             self.current_fontsize = self.validate_fontsize(slide_size)
             out.append(self.current_fontsize)
+        if slide.subtitle is not None:
+            header_lines = [slide.subtitle, *slide.additional_subtitles]
+            # Break only between actual lines. A trailing paragraph break adds
+            # an empty line in themes such as Warsaw's shadow header template.
+            subtitle_tex = '\\\\\n'.join(
+                rf"\mdBeamerHeaderLine{{{HEADING_SIZES[h.level]}}}{{{escape_latex(h.text)}}}"
+                for h in header_lines
+            )
+            out.append(r"\framesubtitle{" + subtitle_tex + "}")
         try:
             for block in slide.body:
-                if isinstance(block, Heading) and block.level==2 and not first_h2:
-                    out.append(rf"\framesubtitle{{{escape_latex(block.text)}}}"); first_h2=True
-                else:
-                    out.append(self.emit_block(block))
+                out.append(self.emit_block(block))
         finally:
             self.current_fontsize = prev_size
         out.append(r"\end{frame}")
+        out.append(r"\endgroup")
         return '\n'.join(x for x in out if x)
     def validate_fontsize(self, size: str) -> str:
         size = size.strip()

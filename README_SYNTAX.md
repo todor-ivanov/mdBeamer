@@ -42,17 +42,74 @@ Headings require one to six `#` characters followed by whitespace.
 
 | Syntax | Beamer interpretation |
 | --- | --- |
-| First top-level `# Title` in a slide | Frame title, unless the slide qualifies as a title page |
-| First top-level `## Subtitle` in an ordinary slide | Frame subtitle |
-| Further `#` or `##` headings | Bold body headings |
-| `###` through `######` | Bold body headings, all rendered alike |
+| First top-level heading, `#` through `######` | Frame title, unless the slide qualifies as a title page |
+| Following consecutive headings, each deeper than the previous header | Additional frame-header lines (subtitle, subsubtitle, etc.) |
+| All other headings | Bold body headings |
 
 Here, “top-level” means outside column and font-size containers.
+Blank lines between header lines are allowed. The header sequence continues
+while each consecutive heading has more `#` characters than the previous one.
+Intervening body content, or a heading of the same or a shallower level, ends
+the sequence. Once it ends, all remaining headings belong to the body. Headings
+inside containers always remain body content.
+
+The number of `#` characters controls each frame-header line's size:
+
+| Heading level | Header font size |
+| --- | --- |
+| `#` | `\Large` |
+| `##` | `\large` |
+| `###` | `\normalsize` |
+| `####` | `\small` |
+| `#####` | `\footnotesize` |
+| `######` | `\scriptsize` |
+
+For example, a slide can start with a smaller title and a still smaller subtitle:
+
+```markdown
+---
+## Results[fontsize=\tiny]
+### Preliminary measurements
+
+The title is large, the subtitle is normalsize, and the body is tiny.
+```
+
+The title and additional header lines use their own levels independently of the slide's
+body `fontsize` attribute. The theme still controls their color, weight, and
+placement. Header-size settings are scoped around the entire frame, including
+Beamer's header rendering. Additional header lines are stacked in the theme's
+subtitle area, each with its own size. Ordinary body headings
+retain their existing bold styling and inherit the body font size; they do not
+use this header-size mapping.
+
+This complete example has three header lines followed by two body sections:
+
+```markdown
+---
+# Slide Title[fontsize=\small]
+## Slide subtitle
+### Slide subsubtitile
+
+# Some section header here
+some text here
+
+## Some subsection header here
+some more text and bullets here
+---
+```
+
+The first three headings appear in the frame header at `\Large`, `\large`, and
+`\normalsize`. The next H1 is shallower than the previous H3, so it starts the
+body. Both body headings use the existing bold styling at the slide's `\small`
+body size. Starting the sequence at `##` or `###` is also supported; levels may
+be skipped, for example `###` followed by `#####` and `######`.
 
 ```markdown
 # Results
 
 ## Preliminary measurements
+
+Body content starts here.
 
 ### Observations
 
@@ -313,7 +370,8 @@ This paragraph and the following list use the slide size.
 
 The attribute is removed from the displayed title. It applies to body paragraphs,
 body headings, lists (including nested lists), code, and tables unless a local
-size overrides it. Frame titles and subtitles retain the Beamer theme's styling.
+size overrides it. Frame-title and frame-subtitle sizes follow their heading
+levels; their other styling comes from the theme.
 The size is scoped to the frame and does not carry into the next slide.
 
 An enclosing `::: fontsize=...` block overrides the slide size. An explicit code
@@ -425,8 +483,9 @@ Automatic layout requires:
 - No explicit `Columns` block at the slide-body level.
 
 All remaining body content is moved into the other column, regardless of its
-original position relative to the image. An H2 moved there becomes a bold body
-heading rather than a frame subtitle.
+original position relative to the image. All opening header lines are extracted
+before this layout step and remain frame headers. Other headings stay in the
+body and move with the other body content.
 
 Use descriptive alt text before the placement suffix, as shown above.
 
@@ -682,6 +741,10 @@ The wrappers provide additional workflows:
   with `latexmk -pdf`, and watches the Markdown source for changes. Image-only
   changes do not trigger a rebuild.
 
+Changes to the converter itself also do not trigger a running preview. After
+updating `mdBeamer.py`, restart the preview or change and save the Markdown input
+to regenerate the TeX and PDF.
+
 Pass the input file first, followed by converter options:
 
 ```bash
@@ -699,7 +762,7 @@ and the build artifacts inspected on 2026-09-10.
 | Opening title, subtitle, and metadata | Recognized as a title page |
 | `# Main assumptions[fontsize=\tiny]` | Attribute removed from title; body and nested lists receive `\tiny` |
 | `![CMS Data Model left:40%](...)` | Automatic 40% image / 60% content columns |
-| `### empty slides` | Untitled frame containing a bold heading |
+| `### empty slides` | Ordinary frame with a normalsize title |
 | Bare `#` | Untitled frame containing a literal `#` |
 | Explicit columns in “Backup slides” | Uses declared 60% / 40% widths |
 | Code with a valid explicit `fontsize` | Overrides the surrounding size |

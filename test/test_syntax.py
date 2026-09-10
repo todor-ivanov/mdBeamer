@@ -32,6 +32,78 @@ class SyntaxTests(unittest.TestCase):
         self.assertIn(r"\begin{tabular}{lcr}", tex)
         self.assertEqual(warnings, [])
 
+    def test_all_heading_levels_can_be_frame_titles(self):
+        sizes = (r"\Large", r"\large", r"\normalsize", r"\small", r"\footnotesize", r"\scriptsize")
+        for level, size in enumerate(sizes, start=1):
+            with self.subTest(level=level):
+                tex, warnings = self.convert('#' * level + ' Title[fontsize=\\tiny]\nBody')
+                self.assertIn(r"\begin{frame}{Title}", tex)
+                self.assertIn(r"\setbeamerfont{frametitle}{size=" + size + "}", tex)
+                self.assertIn("\\tiny\n", tex)
+                self.assertEqual(warnings, [])
+
+    def test_subtitle_requires_an_adjacent_deeper_heading(self):
+        for following, subtitle in (("### Sub", True), ("#### Sub", True),
+                                    ("## Body heading", False), ("# Body heading", False),
+                                    ("Paragraph\n\n### Body heading", False)):
+            with self.subTest(following=following):
+                tex, warnings = self.convert("## Title\n\n" + following + "\n\nContent")
+                self.assertEqual(r"\framesubtitle{" in tex, subtitle)
+                self.assertEqual(warnings, [])
+
+    def test_headers_survive_automatic_columns(self):
+        tex, warnings = self.convert('## Title\n### Sub\n\nText\n\n![Image left](figure.png)')
+        self.assertIn(r"\framesubtitle{\mdBeamerHeaderLine{\normalsize}{Sub}}", tex)
+        self.assertLess(tex.index(r"\framesubtitle{"), tex.index(r"\begin{columns}"))
+        self.assertEqual(warnings, [])
+
+    def test_header_sizes_are_scoped_around_frame_not_inside_body(self):
+        tex, warnings = self.convert('## Small title\n### Subtitle\n\nBody\n---\n# Larger title\nBody')
+        smaller_setting = tex.index(r"\setbeamerfont{frametitle}{size=\large}")
+        smaller_frame = tex.index(r"\begin{frame}{Small title}")
+        self.assertLess(tex.index(r"\begingroup"), smaller_setting)
+        self.assertLess(smaller_setting, smaller_frame)
+        self.assertIn("\\end{frame}\n\\endgroup\n\\begingroup", tex)
+        self.assertLess(tex.index(r"\setbeamerfont{frametitle}{size=\Large}"),
+                        tex.index(r"\begin{frame}{Larger title}"))
+        self.assertEqual(warnings, [])
+
+    def test_multiple_header_lines_and_body_section_headings(self):
+        source = r'''---
+# Slide Title[fontsize=\small]
+## Slide subtitle
+### Slide subsubtitile
+
+# Some section header here
+some text here
+
+## Some subsection header here
+some more text and bullets here
+---'''
+        tex, warnings = self.convert(source)
+        self.assertIn(r"\begin{frame}{Slide Title}", tex)
+        self.assertIn("\\framesubtitle{\\mdBeamerHeaderLine{\\large}{Slide subtitle}\n"
+                      "\\mdBeamerHeaderLine{\\normalsize}{Slide subsubtitile}}", tex)
+        self.assertNotIn(r"\textbf{Slide subsubtitile}", tex)
+        self.assertIn(r"\textbf{Some section header here}", tex)
+        self.assertIn(r"\textbf{Some subsection header here}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_header_sequence_can_start_deeper_and_skip_levels(self):
+        tex, warnings = self.convert('### Title\n##### Subtitle\n###### Detail\n\n## Section\nBody')
+        self.assertIn(r"\begin{frame}{Title}", tex)
+        self.assertIn(r"\setbeamerfont{frametitle}{size=\normalsize}", tex)
+        self.assertIn("\\framesubtitle{\\mdBeamerHeaderLine{\\footnotesize}{Subtitle}\n"
+                      "\\mdBeamerHeaderLine{\\scriptsize}{Detail}}", tex)
+        self.assertIn(r"\textbf{Section}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_container_heading_stays_in_body(self):
+        tex, warnings = self.convert('::: fontsize=\\small\n## Body heading\n:::')
+        self.assertNotIn(r"\setbeamerfont{frametitle}", tex)
+        self.assertIn(r"\textbf{Body heading}", tex)
+        self.assertEqual(warnings, [])
+
     def test_quoted_attributes_and_wrapping_widths(self):
         tex, warnings = self.convert('# Table\n::: table fontsize="\\tiny" width=80% widths="20%, 60%, 20%"\n| A | B | C |\n| --- | :---: | ---: |\n| a | b | c |\n:::')
         self.assertIn(r"{0.8\linewidth}", tex)
@@ -111,18 +183,43 @@ class SyntaxTests(unittest.TestCase):
         # Observe TeX's actual active font, not just commands in generated text.
         for marker in expected:
             tex = tex.replace(marker, r"\typeout{MDB-SIZE-" + marker + r":\csname f@size\endcsname}" + marker)
+        # Read font sizes while Beamer actually renders the header template,
+        # rather than only checking font commands in the generated source.
+        header_samples = {
+            "Header level one": ("HeaderOne", 14.4),
+            "Header level two": ("HeaderTwo", 12),
+            "Header level three": ("HeaderThree", 10.95),
+            "Header level four": ("HeaderFour", 10),
+            "Header level five": ("HeaderFive", 9),
+            "Header level six": ("HeaderSix", 8),
+            "Subtitle level two": ("SubtitleTwo", 12),
+            "Subtitle level three": ("SubtitleThree", 10.95),
+            "Subtitle level four": ("SubtitleFour", 10),
+            "Subtitle level five": ("SubtitleFive", 9),
+            "Subtitle level six": ("SubtitleSix", 8),
+            "Slide subsubtitile": ("Subsubtitle", 10.95),
+        }
+        for label, (marker, size) in header_samples.items():
+            tex = tex.replace(label, r"\typeout{MDB-SIZE-" + marker + r":\csname f@size\endcsname}" + label)
+            expected[marker] = size
         engines = [name for name in ("pdflatex", "lualatex") if shutil.which(name)]
         if not engines:
             self.skipTest("No LaTeX engine available")
         for engine in engines:
             with self.subTest(engine=engine), tempfile.TemporaryDirectory(prefix="mdbeamer-syntax-") as directory:
                 path = Path(directory)
+                # The showcase reuses one repository image. Make the same
+                # relative path available in the isolated compilation directory.
+                (path / "png").mkdir()
+                shutil.copyfile(ROOT / "test" / "png" / "cms-data-model_diagram_01.png",
+                                path / "png" / "cms-data-model_diagram_01.png")
                 (path / "syntax.tex").write_text(tex)
                 result = subprocess.run([engine, "-interaction=nonstopmode", "-halt-on-error", "syntax.tex"],
                                         cwd=path, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
                 self.assertEqual(result.returncode, 0, result.stdout[-6000:])
                 log = (path / "syntax.log").read_text(errors="replace")
-                self.assertNotIn("Overfull", log)
+                # Oversized-table slides deliberately exercise overflow. A
+                # blanket prohibition on overfull boxes would reject that syntax.
                 sizes = dict(re.findall(r"MDB-SIZE-(\w+):([\d.]+)", log))
                 for marker, size in expected.items():
                     self.assertIn(marker, sizes)
@@ -131,7 +228,7 @@ class SyntaxTests(unittest.TestCase):
                 if shutil.which("pdftotext"):
                     extracted = subprocess.run(["pdftotext", "syntax.pdf", "-"], cwd=path,
                                                capture_output=True, text=True, check=True).stdout
-                    self.assertEqual(extracted.count('\f'), 6)
+                    self.assertEqual(extracted.count('\f'), 49)
                     self.assertIn("Title-only frame", extracted)
 
 
