@@ -23,6 +23,9 @@ please open an issue in the repository.
 A simple script to allow quick translation from Markdown to Beamer and creating
 a heavily customized presentations using a specific template.
 
+See [Syntax reference](README_SYNTAX.md) for supported Markdown syntax,
+Beamer-specific extensions, examples, and current limitations.
+
 ## Usage:
 
 ```
@@ -47,4 +50,25 @@ options:
 
 ```
 ./mdBeamer.sh test/DBS_future_dev_notes.md --theme Warsaw
+```
+
+# preview
+
+A simple script to implement a continuous live preview of an mdBeamer translated
+file. The refresh is triggered on any change of the original Markdown file(*.md).
+
+```
+usage ./preview.sh [-h] [--<mdBeamer options>] input_md
+
+positional arguments:
+  input_md
+
+options:
+    It supports any option valid for the mdBeamer.py script
+```
+
+## Example:
+
+```
+./preview.sh test/DBS_future_dev_notes.md --theme Warsaw
 ```

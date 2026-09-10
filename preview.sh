@@ -34,7 +34,8 @@ if [[ $inFile != *.md ]]; then
     exit 2
 fi
 
-outDir=$inDir
+outDir=$inDir/output/
+mkdir -p $outDir
 texFile="${outDir}/${inFile%.md}.tex"
 outFile="${outDir}/${inFile%.md}.pdf"
 
