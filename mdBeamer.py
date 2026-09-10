@@ -2,7 +2,10 @@
 from __future__ import annotations
 import argparse
 import re
+import math
+import shlex
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -24,7 +27,10 @@ class FootnoteRef(Inline): key: str
 @dataclass
 class Block: pass
 @dataclass
-class Heading(Block): level: int; text: str
+class Heading(Block):
+    level: int
+    text: str
+    attrs: dict = field(default_factory=dict)
 @dataclass
 class Paragraph(Block): lines: List[str]
 @dataclass
@@ -54,6 +60,9 @@ class TableBlock(Block):
     headers: List[str]
     rows: List[List[str]]
     alignments: Optional[List[str]] = None
+    fontsize: Optional[str] = None
+    width: Optional[str] = None
+    widths: Optional[str] = None
 @dataclass
 class Column:
     width: Optional[str]
@@ -263,6 +272,16 @@ def directive_fontsize_start(line: str) -> Optional[str]:
 def directive_end(line: str) -> bool:
     return line.strip() == ":::"
 
+def directive_table_start(line: str) -> Optional[str]:
+    m = re.match(r'^:::\s+table(?:\s+(.*))?$', line.strip())
+    return None if m is None else (m.group(1) or "")
+
+def directive_container_start(line: str) -> bool:
+    return (directive_columns_start(line)
+            or directive_column_start(line) is not None
+            or directive_fontsize_start(line) is not None
+            or directive_table_start(line) is not None)
+
 
 def is_table_separator_line(line: str) -> bool:
     s = line.strip()
@@ -342,15 +361,16 @@ def parse_inlines(text: str) -> List[Inline]:
     return out
 
 class BlockParser:
-    def __init__(self, text: str, footnotes=None):
+    def __init__(self, text: str, footnotes=None, warnings=None):
         self.lines = text.split('\n')
         self.i = 0
         self.footnotes = {} if footnotes is None else footnotes
+        self.warnings = [] if warnings is None else warnings
     def eof(self) -> bool: return self.i >= len(self.lines)
     def peek(self) -> str: return self.lines[self.i] if not self.eof() else ""
     def advance(self) -> str:
         line = self.peek(); self.i += 1; return line
-    def parse(self) -> Slide:
+    def parse(self, allow_title_page: bool = True) -> Slide:
         blocks = self.parse_blocks(stop_at=None)
 
         legacy_slide_fontsize = None
@@ -364,14 +384,13 @@ class BlockParser:
         blocks = filtered_blocks
 
         inferred_slide_fontsize = None
-        if blocks and isinstance(blocks[0], Heading) and blocks[0].level == 1:
-            clean_title, attrs = parse_heading_info(blocks[0].text)
-            blocks[0].text = clean_title
-            inferred_slide_fontsize = attrs.get("fontsize")
+        title_heading = next((b for b in blocks if isinstance(b, Heading) and b.level == 1), None)
+        if title_heading is not None:
+            inferred_slide_fontsize = title_heading.attrs.get("fontsize")
 
         slide_fontsize = inferred_slide_fontsize or legacy_slide_fontsize
 
-        title_page = self.try_parse_title_page(blocks)
+        title_page = self.try_parse_title_page(blocks) if allow_title_page else None
         if title_page is not None:
             slide = Slide(title=None, body=[title_page], slide_fontsize=slide_fontsize)
             slide.footnotes = self.footnotes
@@ -399,24 +418,76 @@ class BlockParser:
                 else: return None
             idx += 1
         return None if idx != len(blocks) else TitlePage(title, subtitle, author, institute, date)
+    def collect_container(self, stop_at_column=False) -> str:
+        """Read a container body without interpreting directives inside code."""
+        lines = []
+        depth = 0
+        fence = None
+        while not self.eof():
+            line = self.peek()
+            if fence is not None:
+                lines.append(self.advance())
+                if line.strip() == fence:
+                    fence = None
+                continue
+            opening = begin_fence(line)
+            if opening:
+                fence = opening[0]
+                lines.append(self.advance())
+                continue
+            if depth == 0 and stop_at_column and directive_column_start(line) is not None:
+                return '\n'.join(lines)
+            if directive_end(line):
+                self.advance()
+                if depth == 0:
+                    return '\n'.join(lines)
+                depth -= 1
+            else:
+                if directive_container_start(line):
+                    depth += 1
+                self.advance()
+            lines.append(line)
+        self.warnings.append("Unclosed directive container; closed at end of slide.")
+        return '\n'.join(lines)
+
+    def parse_table_directive(self, attributes: str) -> List[Block]:
+        self.advance()
+        attrs = {}
+        lexer = shlex.shlex(attributes, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ''
+        lexer.escape = ''  # Preserve LaTeX commands such as \tiny.
+        try:
+            for token in lexer:
+                key, sep, value = token.partition('=')
+                if not sep or key not in {'fontsize', 'width', 'widths'} or not value:
+                    self.warnings.append(f"Unsupported or malformed table attribute: {token}")
+                else:
+                    attrs[key] = value
+        except ValueError as exc:
+            self.warnings.append(f"Malformed table attributes: {exc}")
+        inner = BlockParser(self.collect_container(), self.footnotes, self.warnings).parse_blocks(None)
+        if len(inner) != 1 or not isinstance(inner[0], TableBlock):
+            self.warnings.append("Table directive must contain exactly one pipe table; attributes ignored.")
+            return inner
+        table = inner[0]
+        table.fontsize = attrs.get('fontsize')
+        table.width = attrs.get('width')
+        table.widths = attrs.get('widths')
+        return inner
+
     def parse_blocks(self, stop_at: Optional[str]) -> List[Block]:
         blocks: List[Block] = []
         while not self.eof():
             line = self.peek()
             if stop_at is not None and line.strip() == stop_at: break
+            table_attrs = directive_table_start(line)
+            if table_attrs is not None:
+                blocks.extend(self.parse_table_directive(table_attrs)); continue
             fs = directive_fontsize_start(line)
             if fs is not None:
-                self.advance(); inner_lines=[]; depth=0
-                while not self.eof():
-                    l = self.peek()
-                    if directive_end(l):
-                        if depth == 0: break
-                        depth -= 1; inner_lines.append(self.advance()); continue
-                    if directive_columns_start(l) or directive_column_start(l) is not None or directive_fontsize_start(l) is not None:
-                        depth += 1; inner_lines.append(self.advance()); continue
-                    inner_lines.append(self.advance())
-                if not self.eof() and directive_end(self.peek()): self.advance()
-                inner_blocks = BlockParser("\n".join(inner_lines), footnotes=self.footnotes).parse_blocks(stop_at=None)
+                self.advance()
+                inner_blocks = BlockParser(self.collect_container(), self.footnotes, self.warnings).parse_blocks(None)
                 blocks.append(FontSizeBlock(fs, inner_blocks)); continue
             if directive_columns_start(line):
                 blocks.append(self.parse_columns()); continue
@@ -427,8 +498,8 @@ class BlockParser:
             hm = heading_match(line)
             if hm:
                 self.advance()
-                clean_text, _attrs = parse_heading_info(hm[1])
-                blocks.append(Heading(hm[0], clean_text)); continue
+                clean_text, attrs = parse_heading_info(hm[1])
+                blocks.append(Heading(hm[0], clean_text, attrs)); continue
             im = image_match(line.strip())
             if im:
                 self.advance()
@@ -455,7 +526,7 @@ class BlockParser:
         lines: List[str] = []
         while not self.eof():
             line = self.peek()
-            if line.strip()=="" or heading_match(line) or begin_fence(line) or directive_columns_start(line) or directive_fontsize_start(line) is not None or image_match(line.strip()) or bullet_match(line) is not None or enum_match(line) is not None:
+            if line.strip()=="" or heading_match(line) or begin_fence(line) or directive_columns_start(line) or directive_fontsize_start(line) is not None or directive_table_start(line) is not None or image_match(line.strip()) or bullet_match(line) is not None or enum_match(line) is not None or ("|" in line and self.i + 1 < len(self.lines) and is_table_separator_line(self.lines[self.i + 1])):
                 break
             lines.append(self.advance())
         return Paragraph(lines)
@@ -469,18 +540,7 @@ class BlockParser:
             column_meta = directive_column_start(line)
             if column_meta is not None:
                 width, valign = column_meta; self.advance()
-                col_lines=[]; depth=0
-                while not self.eof():
-                    l = self.peek()
-                    if directive_end(l) and depth == 0: break
-                    if directive_column_start(l) is not None and depth == 0: break
-                    if directive_end(l):
-                        depth -= 1; col_lines.append(self.advance()); continue
-                    if directive_columns_start(l) or directive_fontsize_start(l) is not None or (directive_column_start(l) is not None and depth > 0):
-                        depth += 1; col_lines.append(self.advance()); continue
-                    col_lines.append(self.advance())
-                if not self.eof() and directive_end(self.peek()): self.advance()
-                col_blocks = BlockParser("\n".join(col_lines), footnotes=self.footnotes).parse_blocks(stop_at=None)
+                col_blocks = BlockParser(self.collect_container(stop_at_column=True), self.footnotes, self.warnings).parse_blocks(None)
                 columns.append(Column(width, valign, col_blocks)); continue
             self.advance()
         return Columns(columns)
@@ -492,7 +552,7 @@ class BlockParser:
         rows: List[List[str]] = []
         while not self.eof():
             line = self.peek()
-            if line.strip() == "" or "|" not in line or is_table_separator_line(line):
+            if line.strip() == "" or directive_end(line) or directive_container_start(line) or "|" not in line or is_table_separator_line(line):
                 break
             rows.append(split_table_row(self.advance()))
         return TableBlock(headers=headers, rows=rows, alignments=aligns)
@@ -521,7 +581,7 @@ class BlockParser:
             continuation=[]
             while not self.eof():
                 nxt = self.peek()
-                if nxt.strip()=="" or bullet_match(nxt) is not None or enum_match(nxt) is not None or heading_match(nxt) or begin_fence(nxt) or image_match(nxt.strip()) or directive_columns_start(nxt) or directive_fontsize_start(nxt) is not None:
+                if nxt.strip()=="" or bullet_match(nxt) is not None or enum_match(nxt) is not None or heading_match(nxt) or begin_fence(nxt) or image_match(nxt.strip()) or directive_columns_start(nxt) or directive_fontsize_start(nxt) is not None or directive_table_start(nxt) is not None:
                     break
                 leading = len(nxt) - len(nxt.lstrip(' '))
                 if leading > indent: continuation.append(self.advance().strip())
@@ -545,9 +605,13 @@ class BeamerEmitter:
         parts = [r"""\PassOptionsToPackage{table}{xcolor}
 \documentclass{beamer}
 \usepackage{hyperref}
+\usepackage{lmodern}  % Enables smooth font scaling
 \usepackage{graphicx}
 \usepackage{multicol}
 \usepackage{ragged2e}
+\usepackage{array}
+\newlength{\mdBeamerTableWidth}
+\newlength{\mdBeamerTableContentWidth}
 \usepackage{iftex}
 \ifPDFTeX
   \usepackage[utf8]{inputenc}
@@ -599,7 +663,8 @@ class BeamerEmitter:
         prev_size = self.current_fontsize
         slide_size = getattr(slide, "slide_fontsize", None)
         if slide_size:
-            self.current_fontsize = slide_size
+            self.current_fontsize = self.validate_fontsize(slide_size)
+            out.append(self.current_fontsize)
         try:
             for block in slide.body:
                 if isinstance(block, Heading) and block.level==2 and not first_h2:
@@ -610,12 +675,18 @@ class BeamerEmitter:
             self.current_fontsize = prev_size
         out.append(r"\end{frame}")
         return '\n'.join(x for x in out if x)
+    def validate_fontsize(self, size: str) -> str:
+        size = size.strip()
+        allowed = {r"\tiny", r"\scriptsize", r"\footnotesize", r"\small", r"\normalsize",
+                   r"\large", r"\Large", r"\LARGE", r"\huge", r"\Huge"}
+        if size not in allowed:
+            self.warnings.append(f"Unsupported fontsize command: {size}; using \\normalsize")
+            return r"\normalsize"
+        return size
+
     def emit_block(self, block: Block, list_depth: int = 1) -> str:
         if isinstance(block, FontSizeBlock):
-            size = block.size.strip()
-            allowed = {r"\tiny",r"\scriptsize",r"\footnotesize",r"\small",r"\normalsize",r"\large",r"\Large",r"\LARGE",r"\huge",r"\Huge"}
-            if size not in allowed:
-                self.warnings.append(f"Unsupported fontsize command: {size}; using \\normalsize"); size=r"\normalsize"
+            size = self.validate_fontsize(block.size)
             prev=self.current_fontsize; self.current_fontsize=size
             try: inner=[self.emit_block(b,1) for b in block.blocks]
             finally: self.current_fontsize=prev
@@ -635,6 +706,8 @@ class BeamerEmitter:
             opts=[]
             if block.language: opts.append(f"language={escape_latex(block.language)}")
             code_size = block.fontsize if getattr(block, "fontsize", None) else self.current_fontsize
+            if code_size:
+                code_size = self.validate_fontsize(code_size)
             opts.append(f"basicstyle=\\ttfamily{code_size}" if code_size else r"basicstyle=\ttfamily\small")
             opts += ["breaklines=true","columns=fullflexible","keepspaces=true","frame=single","framerule=0.4pt","rulecolor=\\color{black!15}","backgroundcolor=\\color{black!3}","framesep=4pt","aboveskip=4pt","belowskip=4pt"]
             return rf"\begin{{lstlisting}}[{','.join(opts)}]" + "\n" + block.content + "\n" + r"\end{lstlisting}"
@@ -704,6 +777,10 @@ class BeamerEmitter:
             self.warnings.append(f"List nesting depth {depth} exceeds Beamer-safe limit 3; flattening deeper levels.")
             return "\n".join(r"\textbf{-} " + self.emit_inlines(parse_inlines(i.text)) for i in items)
         out=[rf"\begin{{{env}}}"]
+        # Beamer resets the font at every list depth; apply the inherited size
+        # after entering each environment, including nested lists.
+        if self.current_fontsize:
+            out.append(self.current_fontsize)
         for item in items:
             out.append(r"\item " + self.emit_inlines(parse_inlines(item.text)))
             for child in item.children:
@@ -712,9 +789,59 @@ class BeamerEmitter:
                 else: out.append(self.emit_block(child, depth+1))
         out.append(rf"\end{{{env}}}")
         return '\n'.join(out)
+    def table_percentage(self, value: str) -> float:
+        if not re.fullmatch(r'(?:\d+(?:\.\d+)?|\.\d+)%', value.strip()):
+            raise ValueError("expected a positive percentage")
+        number = float(value.strip()[:-1])
+        if not math.isfinite(number) or not 0 < number <= 100:
+            raise ValueError("percentage must be greater than 0 and at most 100")
+        return number / 100
+
+    def table_layout(self, block: TableBlock, ncols: int):
+        alignments = block.alignments or ['l'] * ncols
+        if len(alignments) != ncols:
+            self.warnings.append(f"Table separator has {len(alignments)} columns; expected {ncols}.")
+        alignments = (alignments + ['l'] * ncols)[:ncols]
+        if block.width is None and block.widths is None:
+            return ''.join(alignments), []
+
+        width = block.width.strip() if block.width is not None else r"\linewidth"
+        percentage = re.fullmatch(r'([+-]?(?:\d+(?:\.\d*)?|\.\d+))%', width)
+        if percentage:
+            # Percentages are Markdown shorthand; native TeX lengths and
+            # expressions pass through unchanged for TeX to interpret.
+            factor = format(Decimal(percentage.group(1)) / 100, 'f')
+            width = factor + r"\linewidth"
+        shares = [1 / ncols] * ncols
+        if block.widths is not None:
+            try:
+                values = [self.table_percentage(v) for v in block.widths.split(',')]
+                if len(values) != ncols or not math.isclose(sum(values), 1.0, abs_tol=0.00001, rel_tol=0):
+                    raise ValueError("column widths must match the header count and total 100%")
+                shares = values
+            except ValueError:
+                self.warnings.append(f"Invalid table column widths: {block.widths}; expected {ncols} positive percentages totaling 100%; using equal widths.")
+        setup = [
+            rf"\setlength{{\mdBeamerTableWidth}}{{{width}}}",
+            rf"\setlength{{\mdBeamerTableContentWidth}}{{\dimexpr\mdBeamerTableWidth-{2 * ncols}\tabcolsep\relax}}",
+            # Tiny tables should still have positive paragraph widths. Reduce
+            # padding only when it would exhaust the available table width.
+            r"\ifdim\mdBeamerTableContentWidth<1pt",
+            r"\setlength{\tabcolsep}{0pt}",
+            r"\setlength{\mdBeamerTableContentWidth}{\mdBeamerTableWidth}",
+            r"\fi",
+        ]
+        commands = {'l': r'\raggedright', 'c': r'\centering', 'r': r'\raggedleft'}
+        cols = ''.join(
+            rf">{{{commands[a]}\arraybackslash}}p{{{share:.8f}\mdBeamerTableContentWidth}}"
+            for a, share in zip(alignments, shares)
+        )
+        return cols, setup
+
     def emit_table(self, block: TableBlock) -> str:
         ncols = max(len(block.headers), 1)
-        cols = "".join(["c"] * ncols)
+        cols, layout_setup = self.table_layout(block, ncols)
+        size = self.validate_fontsize(block.fontsize) if block.fontsize else (self.current_fontsize or r"\scriptsize")
 
         header_cells = [
             r"\textbf{" + self.emit_inlines(parse_inlines(c)) + r"}"
@@ -724,9 +851,10 @@ class BeamerEmitter:
         out = [
             r"\medskip",
             r"{",
-            r"\scriptsize",
+            size,
             r"\setlength{\tabcolsep}{4pt}",
             r"\renewcommand{\arraystretch}{1.12}",
+            *layout_setup,
             r"\begin{center}",
             r"\rowcolors{2}{black!4}{white}",
             r"\begin{tabular}{" + cols + "}",
@@ -734,7 +862,10 @@ class BeamerEmitter:
         ]
         out.append(" & ".join(header_cells) + r" \\")
         out.append(r"\hline")
-        for row in block.rows:
+        for row_number, row in enumerate(block.rows, start=1):
+            if len(row) != ncols:
+                self.warnings.append(f"Table row {row_number} has {len(row)} cells; expected {ncols}; "
+                                     + ("padding missing cells." if len(row) < ncols else "discarding extra cells."))
             padded = row + [""] * max(0, ncols - len(row))
             out.append(" & ".join(self.emit_inlines(parse_inlines(c)) for c in padded[:ncols]) + r" \\")
         out.append(r"\end{tabular}")
@@ -772,12 +903,14 @@ class BeamerEmitter:
 def md_to_beamer(markdown_text: str, theme=None, colortheme=None, fonttheme=None, innertheme=None, outertheme=None):
     markdown_text = normalize_newlines(markdown_text)
     slides = []
+    warnings = []
     for s in split_slides(markdown_text):
         if not s.strip():
             continue
         clean_s, footnotes = extract_footnote_definitions(s)
-        slides.append(BlockParser(clean_s, footnotes=footnotes).parse())
+        slides.append(BlockParser(clean_s, footnotes=footnotes, warnings=warnings).parse(allow_title_page=not slides))
     emitter=BeamerEmitter(theme,colortheme,fonttheme,innertheme,outertheme)
+    emitter.warnings.extend(warnings)
     return emitter.emit_document(slides), emitter.warnings
 
 def main() -> int:

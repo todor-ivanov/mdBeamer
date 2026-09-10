@@ -5,9 +5,11 @@ reference describes the current implementation in [mdBeamer.py](mdBeamer.py),
 including incomplete features and limitations. Examples and observations also
 draw on `DBS_future_dev_notes.orig.md` in the parent project.
 
-This reference is based on static code analysis, not execution of the converter
-or PDF compilation. Behavior described as incomplete should not be treated as
-working syntax.
+This reference describes the implemented syntax. The parent project's
+`output/DBS_future_dev_notes.orig.tex` and corresponding compilation log confirm
+PDF generation with slide font sizes and a table with wrapping columns. A
+successful build does not guarantee that every slide fits; see the layout
+limitations and build observations below.
 
 ## 1. Document and slide structure
 
@@ -100,12 +102,12 @@ Recognition requires the slide to contain exactly:
 Extra paragraphs, images, or unrecognized metadata items prevent title-page
 recognition.
 
-**A slide containing only `# Title` also becomes a title page.** Recognition is
-not restricted to the first slide.
+**Only the first nonempty slide is eligible for automatic title-page recognition.**
+If it contains only `# Title`, it becomes a title page. Later title-only slides
+are ordinary frames, even if they match the title-page structure.
 
-The first recognized title page supplies document-wide metadata. Any later
-recognized title pages emit `\titlepage` using that same metadata. If the
-recognized title page has no date, the converter explicitly sets an empty date.
+The opening title page supplies document-wide metadata. If it has no date, the
+converter explicitly sets an empty date.
 
 ## 4. Paragraphs and inline formatting
 
@@ -282,7 +284,8 @@ Code font-size precedence is:
 
 1. The code fence's `fontsize` attribute.
 2. The surrounding font-size block.
-3. Default `\small`.
+3. The slide's font size.
+4. Default `\small`.
 
 The bracket must immediately follow the language:
 
@@ -291,20 +294,41 @@ Python[fontsize=\tiny]
 ```
 
 A space between the language and `[` prevents the intended attribute parsing.
-Code font-size values are not validated against the supported-command list.
+Code font-size values use the same supported-command list. Invalid sizes produce
+a warning and fall back to `\normalsize`.
 
-Tables independently force `\scriptsize`, overriding an enclosing size.
+### Slide font size
 
-### Incomplete slide-size syntax
-
-The example document contains:
+Set the default body size on the heading used as the frame title:
 
 ```markdown
+---
 # Main assumptions[fontsize=\tiny]
+
+This paragraph and the following list use the slide size.
+
+- First point
+- Second point
 ```
 
-The parser recognizes and removes the attribute, but discards it before the
-slide-level font-size logic reads it. **It currently has no font-size effect.**
+The attribute is removed from the displayed title. It applies to body paragraphs,
+body headings, lists (including nested lists), code, and tables unless a local
+size overrides it. Frame titles and subtitles retain the Beamer theme's styling.
+The size is scoped to the frame and does not carry into the next slide.
+
+An enclosing `::: fontsize=...` block overrides the slide size. An explicit code
+or table size overrides that enclosing block. All these sizes are validated
+against the commands listed above; an invalid command warns and uses
+`\normalsize`.
+
+Table font-size precedence is:
+
+1. The table directive's `fontsize` attribute.
+2. The surrounding font-size block.
+3. The slide's font size.
+4. Default `\scriptsize`.
+
+### Unsupported legacy directive
 
 The code also defines recognition for:
 
@@ -315,8 +339,7 @@ The code also defines recognition for:
 However, that recognizer is never called by the block parser. This is not a
 working directive.
 
-To size ordinary slide content, put the body inside a `fontsize` block while
-keeping the slide title outside it.
+Use the slide-title attribute or a scoped `fontsize` block instead.
 
 ## 8. Images
 
@@ -453,10 +476,10 @@ works for image dimensions.
 - Explicit columns can contain paragraphs, lists, images, tables, code, and
   font-size blocks.
 
-The parser attempts to support nested containers, but delimiter processing is
-not code-fence-aware. Literal directive lines inside code nested in a container
-can interfere with parsing. Properly balanced, simple containers are the
-reliable authoring pattern.
+Column and font-size containers support nested directives, including table
+directives. Their body collection preserves directive-looking lines inside
+fenced code. An unclosed column, font-size, or table body is closed at the end
+of the slide with a warning. Always balance the closing delimiters explicitly.
 
 ## 11. Tables
 
@@ -477,24 +500,117 @@ Name | Count
 Alpha | 42
 ```
 
-Separator cells require at least three hyphens and may have alignment colons.
+Separator cells require at least three hyphens. Alignment is honored:
 
-**Current output ignores parsed alignment: all columns are centered.**
+| Separator | Alignment |
+| --- | --- |
+| `---` or `:---` | Left |
+| `:---:` | Center |
+| `---:` | Right |
 
-Tables are rendered with bold headers, `\scriptsize` text, a shaded header and
-alternating row shading, a horizontal rule below the header, and fixed
-inter-column padding.
+Tables have bold headers, a shaded header and alternating row shading, and a
+horizontal rule below the header. Their font size follows the precedence in
+section 7; it defaults to `\scriptsize` only when no size is specified or inherited.
 
-Limitations:
+### Table attributes and wrapping columns
 
-- No automatic text wrapping or fit-to-slide scaling.
-- No multiline cells.
-- No escaped pipe handling, including pipes inside inline code.
-- Missing row cells are padded with empty cells.
-- Extra row cells are discarded.
-- Table parsing continues through subsequent nonblank lines containing `|`.
-- A blank line before a table is advisable: a table immediately following
-  ordinary paragraph text can be absorbed into the paragraph.
+Wrap exactly one pipe table in a table directive:
+
+```markdown
+::: table fontsize=\tiny width=100% widths="20%,20%,60%"
+
+| Source | Status | Description |
+| :--- | :---: | :--- |
+| DBS | Integrated | A longer description wraps inside its allocated column. |
+
+:::
+```
+
+| Attribute | Meaning | Default |
+| --- | --- | --- |
+| `fontsize` | Local table font-size command | Inherited size, or `\scriptsize` |
+| `width` | Overall table width: percentage of `\linewidth`, or a native LaTeX length/expression | `\linewidth` when `widths` is given |
+| `widths` | Comma-separated column percentages of the available content width | Equal shares when `width` is given |
+
+Attribute values may be single- or double-quoted. Use no spaces around `=`.
+Quote `widths` if it contains spaces, for example `widths="20%, 20%, 60%"`.
+
+- Supplying either `width` or `widths` enables wrapping paragraph columns.
+- Supplying neither keeps natural-width columns without automatic wrapping,
+  even if the directive specifies `fontsize`.
+- Overall width has no converter-imposed range limit. Percentages such as `120%`
+  are translated to multiples of `\linewidth`. Other values are passed directly
+  to LaTeX's `\setlength`, without escaping, clamping, or a replacement default.
+  LaTeX interprets their validity and units; a bare `1.2` does not automatically
+  mean `1.2\linewidth`.
+- Column percentages must be positive, match the number of header cells, and
+  total 100% (allowing a small rounding tolerance of 0.001 percentage points).
+- Column proportions apply after subtracting cell padding from the overall
+  width. The usual padding is 4pt per cell side. For extremely narrow tables,
+  padding is removed if it would leave less than 1pt of total content width.
+- Inside a Beamer column, `width=100%` uses that column's available line width.
+- Font-size blocks may surround a table directive; table directives may appear
+  inside explicit columns.
+- A table directly following a paragraph is recognized without requiring a
+  blank line, although blank lines make the source easier to read.
+
+Invalid native LaTeX widths are diagnosed by LaTeX during compilation, not
+replaced by the converter. Invalid column proportions warn and fall back to
+equal shares. Unknown or malformed attributes warn. If a
+table directive does not contain exactly one pipe table, its attributes are
+ignored with a warning and its parsed content is retained.
+
+### Widths greater than 100% and intentional overflow
+
+This example requests a table at **120% of the available line width**, directly:
+
+```markdown
+::: table fontsize=\tiny width=120% widths="20%,20%,60%"
+```
+
+The converter generates
+`\setlength{\mdBeamerTableWidth}{1.2\linewidth}`. No enclosing `::: column`
+directive is needed. The internal `widths` values remain proportions of the
+table's content width after padding; they still total 100%.
+
+Native LaTeX lengths and expressions are also supported:
+
+```markdown
+::: table width=1.2\linewidth widths="20%,20%,60%"
+```
+
+```markdown
+::: table width=12cm widths="20%,20%,60%"
+```
+
+```markdown
+::: table width="\dimexpr\linewidth + 2cm\relax" widths="20%,20%,60%"
+```
+
+These examples show alternative opening directives; each still requires its
+pipe table and closing `:::`. Quote expressions containing spaces. Length macros
+must be defined in the generated document or its loaded packages.
+
+The emitter retains its existing `center` environment; there is no additional
+overflow-placement control or guarantee of equal overflow into both margins.
+LaTeX can report an overfull box for an intentionally oversized table. Material
+extending beyond the physical page boundary will not be visible. Omitting both
+width attributes also allows natural-width overflow, but loses wrapping and
+column-proportion control.
+
+### Table limitations and diagnostics
+
+- Wrapping is enabled only by width attributes; there is no automatic font
+  shrinking or pagination to fit a slide.
+- Long unbreakable content can still overflow a wrapping column.
+- Wider columns can reduce wrapping and table height, but do not guarantee
+  that the table fits vertically.
+- Multiline Markdown cells and escaped pipes (including pipes inside inline
+  code) are unsupported.
+- Missing row cells are padded and extra cells discarded, with warnings.
+- A separator/header column-count mismatch also produces a warning.
+- Table parsing continues through subsequent nonblank lines containing `|`,
+  stopping at recognized directive boundaries or another separator row.
 
 ## 12. Footnotes
 
@@ -575,24 +691,37 @@ Pass the input file first, followed by converter options:
 
 ## 14. Observations from the example document
 
-These observations refer to `DBS_future_dev_notes.orig.md` in the parent project.
-They are inferred from the implementation, not from a compiled rendering.
+These observations refer to `DBS_future_dev_notes.orig.md` in the parent project
+and the build artifacts inspected on 2026-09-10.
 
 | Example | Current behavior |
 | --- | --- |
 | Opening title, subtitle, and metadata | Recognized as a title page |
-| `# Main assumptions[fontsize=\tiny]` | Attribute removed; font size unchanged |
+| `# Main assumptions[fontsize=\tiny]` | Attribute removed from title; body and nested lists receive `\tiny` |
 | `![CMS Data Model left:40%](...)` | Automatic 40% image / 60% content columns |
 | `### empty slides` | Untitled frame containing a bold heading |
 | Bare `#` | Untitled frame containing a literal `#` |
 | Explicit columns in “Backup slides” | Uses declared 60% / 40% widths |
-| Code with `[fontsize=\huge]` inside `fontsize=\tiny` | Code's explicit size overrides the surrounding size |
-| Unclosed `fontsize=\small` in “Test column” | Extends to the end of that slide without a warning |
-| Wide table | No wrapping or fitting mechanism; overflow is likely |
+| Code with a valid explicit `fontsize` | Overrides the surrounding size |
+| Code with `[fontsize=\sssmall]` | Invalid command; falls back to `\normalsize` with a warning |
+| Unclosed `fontsize=\small` in “Test column” | Extends to the end of that slide with a warning |
+| Table with `width=120% widths="20%,20%,60%"` | Now emits `1.2\linewidth` with wrapping and 20/20/60 proportions; the previously inspected build used the former 100% fallback |
 | `[GitHub][1]` and similar table links | Remain literal text |
 | `[1]: ...` reference definitions | Remain ordinary body text |
 | `[^1]` in “First scenario” | Undefined on that slide, so emits an empty footnote |
 | Deeply nested lists | Flattening beyond level three; deeper descendants can be omitted |
+
+`output/DBS_future_dev_notes.orig.log` reports successful PDF output. Its generated
+TeX contains the new slide-size commands and wrapping table columns. The log
+also reports vertical overflow, including roughly 95pt for the wide-table slide;
+successful compilation does not establish that all slide content is visible.
+Those artifacts predate removal of the overall-width limit; they do not validate
+the new 120% output. Regenerate the TeX and PDF to apply the change.
+
+The separately inspected `output/DBS_future_dev_notes.tex` still contains the
+older centered natural-width table output and lacks the new slide-size commands.
+It should not be used as evidence that the updated converter was applied to that
+document.
 
 ## 15. Features outside the implemented dialect
 
@@ -602,5 +731,7 @@ or pauses, speaker notes, arbitrary frame options, captions, or automatic
 pagination.
 
 Unsupported syntax is generally treated as ordinary text, partially interpreted,
-or silently ignored. The warnings file covers only selected font-size,
-dimension, alignment, and list-depth problems; it is not a full syntax validator.
+or silently ignored. The warnings file covers selected font-size, dimension,
+alignment, list-depth, table-attribute, row-shape, and unclosed-container problems;
+it is not a full syntax validator. LaTeX layout warnings appear separately in the
+compilation log.

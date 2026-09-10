@@ -1,0 +1,139 @@
+"""Regression and real TeX compilation checks: python3 -m unittest discover -s test."""
+import importlib.util
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("mdbeamer", ROOT / "mdBeamer.py")
+md = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = md
+spec.loader.exec_module(md)
+
+
+class SyntaxTests(unittest.TestCase):
+    def convert(self, source):
+        return md.md_to_beamer(source)
+
+    def test_slide_title_attributes_and_title_only_frames(self):
+        tex, warnings = self.convert("# Opening\n---\n# Later[fontsize=\\tiny]\n---\nBefore\n\n# Content[fontsize=\\small]\nBody")
+        self.assertEqual(tex.count(r"\titlepage"), 1)
+        self.assertIn("\\begin{frame}{Later}\n\\tiny", tex)
+        self.assertIn("\\begin{frame}{Content}\n\\small", tex)
+        self.assertNotIn("fontsize=", tex)
+        self.assertEqual(warnings, [])
+
+    def test_natural_table_alignment_and_paragraph_boundary(self):
+        tex, warnings = self.convert("# Table\nText\n| A | B | C |\n| :--- | :---: | ---: |\n| a | b | c |")
+        self.assertIn(r"\begin{tabular}{lcr}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_quoted_attributes_and_wrapping_widths(self):
+        tex, warnings = self.convert('# Table\n::: table fontsize="\\tiny" width=80% widths="20%, 60%, 20%"\n| A | B | C |\n| --- | :---: | ---: |\n| a | b | c |\n:::')
+        self.assertIn(r"{0.8\linewidth}", tex)
+        for share in ("0.20000000", "0.60000000"):
+            self.assertIn(share + r"\mdBeamerTableContentWidth", tex)
+        self.assertIn(r"\centering\arraybackslash", tex)
+        self.assertIn(r"\raggedleft\arraybackslash", tex)
+        self.assertEqual(warnings, [])
+
+    def test_invalid_sizes_and_dimensions_warn_and_fall_back(self):
+        for widths in ('20%,20%', '0%,100%', '-10%,110%', 'NaN%,100%', '100%', '40%,30%,30%'):
+            with self.subTest(widths=widths):
+                tex, warnings = self.convert(f'# T[fontsize=bad]\n::: table fontsize=bad width=200% widths="{widths}"\n| A | B |\n| --- | --- |\n| x | y |\n:::')
+                self.assertIn(r"\normalsize", tex)
+                self.assertIn(r"{2\linewidth}", tex)
+                self.assertIn(r"p{0.50000000\mdBeamerTableContentWidth}", tex)
+                self.assertTrue(any("Invalid table column widths" in w for w in warnings))
+                self.assertFalse(any("Invalid table width:" in w for w in warnings))
+                self.assertEqual(sum("Unsupported fontsize" in w for w in warnings), 2)
+
+    def test_overall_table_width_preserves_tex_lengths(self):
+        cases = {
+            "120%": r"1.2\linewidth",
+            "200%": r"2\linewidth",
+            "0%": r"0\linewidth",
+            "-20%": r"-0.2\linewidth",
+            "12cm": "12cm",
+            r"1.2\linewidth": r"1.2\linewidth",
+            r"\textwidth": r"\textwidth",
+            r"\dimexpr\linewidth + 2cm\relax": r"\dimexpr\linewidth + 2cm\relax",
+            "invalid-length": "invalid-length",  # TeX diagnoses invalid lengths.
+        }
+        for value, expected in cases.items():
+            with self.subTest(width=value):
+                tex, warnings = self.convert(
+                    f'# T\n::: table fontsize=\\tiny width="{value}" widths="20%,20%,60%"\n'
+                    '| A | B | C |\n| --- | --- | --- |\n| x | y | z |\n:::')
+                self.assertIn(r"\setlength{\mdBeamerTableWidth}{" + expected + "}", tex)
+                self.assertIn(r"p{0.60000000\mdBeamerTableContentWidth}", tex)
+                self.assertEqual(warnings, [])
+
+    def test_row_and_separator_mismatch_diagnostics(self):
+        tex, warnings = self.convert("# T\n| A | B |\n| --- | --- | --- |\n| x |\n| x | y | z |")
+        self.assertTrue(any("separator has 3" in w for w in warnings))
+        self.assertTrue(any("padding missing" in w for w in warnings))
+        self.assertTrue(any("discarding extra" in w for w in warnings))
+        self.assertIn(r"\begin{tabular}{ll}", tex)
+
+    def test_malformed_directives_warn_without_losing_content(self):
+        tex, warnings = self.convert('# T\n::: table unknown=1 fontsize="unterminated\nText preserved')
+        self.assertIn("Text preserved", tex)
+        for fragment in ("malformed table attribute", "Malformed table attributes", "Unclosed", "exactly one"):
+            self.assertTrue(any(fragment in w for w in warnings), fragment)
+
+    def test_container_directives_inside_code_are_literal(self):
+        tex, warnings = self.convert('# T\n::: fontsize=\\tiny\n```\n::: table widths="50%,50%"\n:::\n```\n:::')
+        self.assertIn('::: table widths="50%,50%"\n:::', tex)
+        self.assertIn(r"\begin{frame}[fragile]", tex)
+        self.assertEqual(warnings, [])
+
+    def test_code_fontsize_validation(self):
+        tex, warnings = self.convert('# T\n```Python[fontsize=invalid]\nprint(1)\n```')
+        self.assertIn(r"basicstyle=\ttfamily\normalsize", tex)
+        self.assertTrue(any("Unsupported fontsize" in w for w in warnings))
+
+    def test_compile_and_measure_font_sizes(self):
+        fixture = (ROOT / "test" / "syntax_controls.md").read_text()
+        tex, warnings = md.md_to_beamer(fixture, theme="Warsaw")
+        self.assertEqual(warnings, [])
+        expected = {
+            "SlideBody": 6, "ListOne": 6, "ListTwo": 6, "ListThree": 6,
+            "LocalBody": 10, "LocalList": 10, "RestoredBody": 6,
+            "InheritedTable": 6, "ExplicitTable": 9, "AfterTable": 10,
+            "BlockTable": 6, "ColumnTable": 6, "ColumnAfter": 10,
+            "DefaultBody": 10.95, "DefaultTable": 8,
+        }
+        # Observe TeX's actual active font, not just commands in generated text.
+        for marker in expected:
+            tex = tex.replace(marker, r"\typeout{MDB-SIZE-" + marker + r":\csname f@size\endcsname}" + marker)
+        engines = [name for name in ("pdflatex", "lualatex") if shutil.which(name)]
+        if not engines:
+            self.skipTest("No LaTeX engine available")
+        for engine in engines:
+            with self.subTest(engine=engine), tempfile.TemporaryDirectory(prefix="mdbeamer-syntax-") as directory:
+                path = Path(directory)
+                (path / "syntax.tex").write_text(tex)
+                result = subprocess.run([engine, "-interaction=nonstopmode", "-halt-on-error", "syntax.tex"],
+                                        cwd=path, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout[-6000:])
+                log = (path / "syntax.log").read_text(errors="replace")
+                self.assertNotIn("Overfull", log)
+                sizes = dict(re.findall(r"MDB-SIZE-(\w+):([\d.]+)", log))
+                for marker, size in expected.items():
+                    self.assertIn(marker, sizes)
+                    self.assertAlmostEqual(float(sizes[marker]), size, places=2, msg=f"{engine}: {marker}")
+                self.assertGreater((path / "syntax.pdf").stat().st_size, 0)
+                if shutil.which("pdftotext"):
+                    extracted = subprocess.run(["pdftotext", "syntax.pdf", "-"], cwd=path,
+                                               capture_output=True, text=True, check=True).stdout
+                    self.assertEqual(extracted.count('\f'), 6)
+                    self.assertIn("Title-only frame", extracted)
+
+
+if __name__ == "__main__":
+    unittest.main()
