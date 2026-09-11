@@ -27,6 +27,13 @@ class SyntaxTests(unittest.TestCase):
         self.assertNotIn("fontsize=", tex)
         self.assertEqual(warnings, [])
 
+    def test_navigation_symbols_are_disabled(self):
+        tex, warnings = self.convert("# Slide\nBody")
+        self.assertIn(r"\setbeamertemplate{navigation symbols}{}", tex)
+        self.assertLess(tex.index(r"\setbeamertemplate{navigation symbols}{}"),
+                        tex.index(r"\begin{document}"))
+        self.assertEqual(warnings, [])
+
     def test_natural_table_alignment_and_paragraph_boundary(self):
         tex, warnings = self.convert("# Table\nText\n| A | B | C |\n| :--- | :---: | ---: |\n| a | b | c |")
         self.assertIn(r"\begin{tabular}{lcr}", tex)

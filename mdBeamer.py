@@ -698,6 +698,7 @@ class BeamerEmitter:
         if self.fonttheme: parts.append(rf"\usefonttheme{{{escape_latex(self.fonttheme)}}}")
         if self.innertheme: parts.append(rf"\useinnertheme{{{escape_latex(self.innertheme)}}}")
         if self.outertheme: parts.append(rf"\useoutertheme{{{escape_latex(self.outertheme)}}}")
+        parts.append(r"\setbeamertemplate{navigation symbols}{}")
         if title_page is not None:
             parts.append(rf"\title{{{escape_latex(title_page.title)}}}")
             if title_page.subtitle: parts.append(rf"\subtitle{{{escape_latex(title_page.subtitle)}}}")
