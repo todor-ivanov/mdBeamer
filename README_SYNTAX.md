@@ -737,16 +737,51 @@ spaces or a tab:
 - They may precede or follow references.
 - Repeated definitions of the same key use the last value.
 - Undefined references produce empty footnotes without warnings.
-- Definition text is escaped as plain text; inline formatting and hyperlink
-  syntax are not processed.
+- Definition text supports the same bold, italic, inline-code, and hyperlink
+  syntax as ordinary paragraph text.
 - Footnote extraction happens before block parsing and is not code-fence-aware.
 
 Outside columns, references become ordinary `\footnote{...}` commands.
+Their text inherits the active slide-level `fontsize` or the nearest enclosing
+`::: fontsize=...` block. This allows either presentation-wide slide styling or
+local shrinking around a particular reference:
+
+```markdown
+# Example[fontsize=\small]
+
+This footnote uses the slide's small size.[^slide]
+
+::: fontsize=\tiny
+This footnote uses tiny text.[^local]
+:::
+
+[^slide]: Slide-sized reference text.
+[^local]: Locally sized reference text.
+```
+
+To size the footer reference independently of the text containing its marker,
+add a `fontsize` attribute to the definition:
+
+```markdown
+# Example[fontsize=\large]
+
+The sentence and marker remain large.[^source]
+
+[^source][fontsize=\tiny]: This footer reference is tiny.
+```
+
+The definition-level size takes priority over inherited slide and local sizes.
+It applies to the footnote text and its marker in the footer. The marker beside
+the referencing sentence retains the surrounding text size. The setting is
+scoped to that reference and does not affect later footnotes. Quoted values such
+as `[fontsize="\scriptsize"]` are also accepted. Unsupported font-size commands
+produce the usual warning and fall back to `\normalsize`.
 
 Inside columns:
 
 - References use superscript letters.
-- Footnote text appears below the columns in `\tiny`.
+- Footnote text appears below the columns using the active slide or local font
+  size. Without an explicit size it defaults to `\tiny`.
 - Identical footnote text is deduplicated within that columns block.
 - Marks become numeric after the first 26 entries.
 

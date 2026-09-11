@@ -23,6 +23,10 @@ class Code(Inline): value: str
 class Link(Inline): label: List[Inline]; url: str
 @dataclass
 class FootnoteRef(Inline): key: str
+@dataclass
+class FootnoteDefinition:
+    text: str
+    fontsize: Optional[str] = None
 
 @dataclass
 class Block: pass
@@ -371,24 +375,32 @@ def parse_table_alignments(line: str) -> List[str]:
             out.append("l")
     return out
 
+FOOTNOTE_DEFINITION_RE = re.compile(
+    r'^\[\^([^\]]+)\](?:\[fontsize\s*=\s*(?:"([^"]+)"|\'([^\']+)\'|([^\]\s]+))\s*\])?:\s*(.*)$'
+)
+
+def footnote_definition_match(line: str):
+    return FOOTNOTE_DEFINITION_RE.match(line)
+
 def extract_footnote_definitions(text: str):
     lines = text.split("\n")
     kept = []
     footnotes = {}
     i = 0
     while i < len(lines):
-        m = re.match(r'^\[\^([^\]]+)\]:\s*(.*)$', lines[i])
+        m = footnote_definition_match(lines[i])
         if not m:
             kept.append(lines[i])
             i += 1
             continue
         key = m.group(1)
-        value = m.group(2).strip()
+        fontsize = m.group(2) or m.group(3) or m.group(4)
+        value = m.group(5).strip()
         i += 1
         continuation = []
         while i < len(lines):
             nxt = lines[i]
-            if re.match(r'^\[\^([^\]]+)\]:\s*(.*)$', nxt):
+            if footnote_definition_match(nxt):
                 break
             if nxt.startswith("    ") or nxt.startswith("\t"):
                 continuation.append(nxt.strip())
@@ -400,7 +412,8 @@ def extract_footnote_definitions(text: str):
                 continue
             break
         extra = " ".join(x for x in continuation if x).strip()
-        footnotes[key] = (value + " " + extra).strip() if extra else value
+        value = (value + " " + extra).strip() if extra else value
+        footnotes[key] = FootnoteDefinition(value, fontsize)
     return "\n".join(kept), footnotes
 
 INLINE_TOKEN_RE = re.compile(r'(\*\*\*[^*]+\*\*\*|___[^_]+___|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[\^[^\]]+\])')
@@ -963,10 +976,12 @@ class BeamerEmitter:
         out.append(r"\end{columns}")
         if pending:
             out.append(r"\vspace{0.35em}")
-            out.append(r"{\tiny ")
+            out.append("{")
             rendered = []
-            for i, text in enumerate(pending, start=1):
-                rendered.append(r"\textsuperscript{" + self._column_footnote_mark(i) + "} " + escape_latex(text))
+            for i, (text, size) in enumerate(pending, start=1):
+                reference = (r"\textsuperscript{" + self._column_footnote_mark(i) + "} "
+                             + self.emit_inlines(parse_inlines(text)))
+                rendered.append("{" + (size or r"\tiny") + " " + reference + "}")
             out.append(r"\\ ".join(rendered))
             out.append(r"}")
         return '\n'.join(out)
@@ -1113,14 +1128,28 @@ class BeamerEmitter:
             elif isinstance(node, Code): out.append(r"\texttt{" + escape_latex(node.value) + "}")
             elif isinstance(node, Link): out.append(r"\href{" + escape_latex(node.url) + "}{" + self.emit_inlines(node.label) + "}")
             elif isinstance(node, FootnoteRef):
-                text = self.current_footnotes.get(node.key, "")
+                definition = self.current_footnotes.get(node.key, FootnoteDefinition(""))
+                text = definition.text
+                reference_size = (self.validate_fontsize(definition.fontsize)
+                                  if definition.fontsize else self.current_fontsize)
                 if self.in_columns:
-                    if text not in self.pending_column_footnotes:
-                        self.pending_column_footnotes.append(text)
-                    idx = self.pending_column_footnotes.index(text) + 1
+                    pending_reference = (text, reference_size)
+                    if pending_reference not in self.pending_column_footnotes:
+                        self.pending_column_footnotes.append(pending_reference)
+                    idx = self.pending_column_footnotes.index(pending_reference) + 1
                     out.append(r"\textsuperscript{" + self._column_footnote_mark(idx) + "}")
                 else:
-                    out.append(r"\footnote{" + escape_latex(text) + "}")
+                    reference = self.emit_inlines(parse_inlines(text))
+                    if reference_size:
+                        reference = "{" + reference_size + " " + reference + "}"
+                        out.append(
+                            r"\footnotemark"
+                            r"{\setbeamerfont{footnote}{size=" + reference_size + "}"
+                            r"\setbeamerfont{footnote mark}{size=" + reference_size + "}"
+                            r"\footnotetext{" + reference + "}}"
+                        )
+                    else:
+                        out.append(r"\footnote{" + reference + "}")
             else: out.append(escape_latex(str(node)))
         return ''.join(out)
 

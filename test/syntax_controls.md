@@ -686,9 +686,12 @@ This paragraph references a source.[^source]
 - A list item can contain a footnote.[^detail]
 - Referencing the same key again emits another ordinary footnote.[^source]
 
-[^source]: Example source: https://example.org
+This reference uses the slide size while its footer text is independently tiny.[^compact]
+
+[^source]: [Example source](https://example.org)
 [^detail]: A definition with a continuation.
     This indented line belongs to the same definition.
+[^compact][fontsize=\tiny]: An independently sized footnote.
 
 ---
 

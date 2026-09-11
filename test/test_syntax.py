@@ -287,6 +287,87 @@ Visible'''
         self.assertIn('<!-- keep this -->\n---', tex)
         self.assertEqual(warnings, [])
 
+    def test_markdown_links_inside_slide_local_references(self):
+        source = '''# References
+The previous talk was given during O&C Week.[^talk]
+
+[^talk]: [O&C Week](https://indico.cern.ch/event/1554074/)'''
+        tex, warnings = self.convert(source)
+        self.assertIn(
+            r"\footnote{\href{https://indico.cern.ch/event/1554074/}{O\&C Week}}",
+            tex,
+        )
+        self.assertNotIn(r"[O\&C Week](", tex)
+        self.assertEqual(warnings, [])
+
+    def test_markdown_links_inside_column_references(self):
+        source = '''# References
+::: columns
+::: column width=100%
+Column reference.[^source]
+:::
+:::
+
+[^source]: [Linked source](https://example.org/source)'''
+        tex, warnings = self.convert(source)
+        self.assertIn(r"\textsuperscript{a} \href{https://example.org/source}{Linked source}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_reference_text_inherits_slide_and_local_font_sizes(self):
+        source = r'''# References[fontsize=\small]
+Slide-sized reference.[^slide]
+
+::: fontsize=\tiny
+Locally sized reference.[^local]
+:::
+
+[^slide]: Slide-sized footnote text.
+[^local]: Locally sized footnote text.'''
+        tex, warnings = self.convert(source)
+        self.assertIn(r"\footnotetext{{\small Slide-sized footnote text.}}", tex)
+        self.assertIn(r"\footnotetext{{\tiny Locally sized footnote text.}}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_reference_definition_can_override_footer_font_size(self):
+        source = r'''# References[fontsize=\large]
+The referencing text stays large.[^compact]
+
+[^compact][fontsize=\tiny]: The footer text is independently tiny.'''
+        tex, warnings = self.convert(source)
+        self.assertIn("\\begin{frame}{References}\n\\large", tex)
+        self.assertIn(r"\footnotemark{\setbeamerfont{footnote}{size=\tiny}", tex)
+        self.assertIn(r"\footnotetext{{\tiny The footer text is independently tiny.}}", tex)
+        self.assertIn(r"\setbeamerfont{footnote}{size=\tiny}", tex)
+        self.assertIn(r"\setbeamerfont{footnote mark}{size=\tiny}", tex)
+        self.assertNotIn("fontsize=", tex)
+        self.assertEqual(warnings, [])
+
+    def test_column_reference_text_inherits_slide_font_size(self):
+        source = r'''# References[fontsize=\scriptsize]
+::: columns
+::: column width=100%
+Column reference.[^source]
+:::
+:::
+
+[^source]: Column footnote text.'''
+        tex, warnings = self.convert(source)
+        self.assertIn(r"{\scriptsize \textsuperscript{a} Column footnote text.}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_column_reference_definition_can_override_footer_font_size(self):
+        source = r'''# References[fontsize=\large]
+::: columns
+::: column width=100%
+Large column text.[^compact]
+:::
+:::
+
+[^compact][fontsize="\tiny"]: Independently tiny column footnote.'''
+        tex, warnings = self.convert(source)
+        self.assertIn(r"{\tiny \textsuperscript{a} Independently tiny column footnote.}", tex)
+        self.assertEqual(warnings, [])
+
     def test_unclosed_html_comment_is_ignored_with_warning(self):
         tex, warnings = self.convert('# T\nVisible\n<!-- hidden through EOF')
         self.assertIn('Visible', tex)
