@@ -78,12 +78,22 @@ class FontSizeBlock(Block):
     size: str
     blocks: List[Block]
 @dataclass
+class AffiliationLogo:
+    affiliation_key: str
+    alt: str
+    path: str
+    width: Optional[str] = None
+    height: Optional[str] = None
+@dataclass
 class TitlePage(Block):
     title: str
     subtitle: Optional[str] = None
     author: Optional[str] = None
     institute: Optional[str] = None
     date: Optional[str] = None
+    authors: List[Tuple[str, List[str]]] = field(default_factory=list)
+    affiliations: List[Tuple[Optional[str], str]] = field(default_factory=list)
+    logos: List[AffiliationLogo] = field(default_factory=list)
 @dataclass
 class Slide:
     title: Optional[str]
@@ -393,16 +403,24 @@ def extract_footnote_definitions(text: str):
         footnotes[key] = (value + " " + extra).strip() if extra else value
     return "\n".join(kept), footnotes
 
-INLINE_TOKEN_RE = re.compile(r'(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[\^[^\]]+\])')
+INLINE_TOKEN_RE = re.compile(r'(\*\*\*[^*]+\*\*\*|___[^_]+___|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[\^[^\]]+\])')
 
 def parse_inlines(text: str) -> List[Inline]:
     parts = INLINE_TOKEN_RE.split(text)
     out: List[Inline] = []
     for part in parts:
         if not part: continue
-        if part.startswith("**") and part.endswith("**") and len(part) >= 4:
+        if part.startswith("***") and part.endswith("***") and len(part) >= 6:
+            out.append(Bold([Italic(parse_inlines(part[3:-3]))]))
+        elif part.startswith("___") and part.endswith("___") and len(part) >= 6:
+            out.append(Bold([Italic(parse_inlines(part[3:-3]))]))
+        elif part.startswith("**") and part.endswith("**") and len(part) >= 4:
+            out.append(Bold(parse_inlines(part[2:-2])))
+        elif part.startswith("__") and part.endswith("__") and len(part) >= 4:
             out.append(Bold(parse_inlines(part[2:-2])))
         elif part.startswith("*") and part.endswith("*") and len(part) >= 2:
+            out.append(Italic(parse_inlines(part[1:-1])))
+        elif part.startswith("_") and part.endswith("_") and len(part) >= 2:
             out.append(Italic(parse_inlines(part[1:-1])))
         elif part.startswith("`") and part.endswith("`") and len(part) >= 2:
             out.append(Code(part[1:-1]))
@@ -475,18 +493,71 @@ class BlockParser:
     def try_parse_title_page(self, blocks: List[Block]) -> Optional[TitlePage]:
         if not blocks or not isinstance(blocks[0], Heading) or blocks[0].level != 1: return None
         title = blocks[0].text; idx=1; subtitle=author=institute=date=None
+        authors: List[Tuple[str, List[str]]] = []
+        affiliations: List[Tuple[Optional[str], str]] = []
+        logos: List[AffiliationLogo] = []
         if idx < len(blocks) and isinstance(blocks[idx], Heading) and blocks[idx].level == 2:
             subtitle = blocks[idx].text; idx += 1
         if idx < len(blocks) and isinstance(blocks[idx], BulletList):
             for item in blocks[idx].items:
                 text = item.text.strip(); lower = text.lower()
-                if lower.startswith("author:"): author = text.split(":",1)[1].strip()
-                elif lower.startswith("affiliation:"): institute = text.split(":",1)[1].strip()
-                elif lower.startswith("institute:"): institute = text.split(":",1)[1].strip()
+                if lower.startswith("author:"):
+                    author = text.split(":",1)[1].strip()
+                    refs = re.findall(r'\[\^([^\]]+)\]', author)
+                    name = re.sub(r'\[\^[^\]]+\]', '', author).strip()
+                    authors.append((name, refs))
+                elif lower.startswith("affiliation:") or lower.startswith("institute:"):
+                    institute = text.split(":",1)[1].strip()
+                    entries = re.split(r',\s*(?=\[\^[^\]]+\])', institute)
+                    for entry in entries:
+                        label_match = re.match(r'^\[\^([^\]]+)\]\s*(.*)$', entry.strip())
+                        if label_match:
+                            affiliations.append((label_match.group(1), label_match.group(2).strip()))
+                        else:
+                            affiliations.append((None, entry.strip()))
+                elif lower.startswith("affiliation-logo:"):
+                    logo_value = text.split(":", 1)[1].strip()
+                    logo_label = re.match(r'^\[\^([^\]]+)\]\s*(.*)$', logo_value)
+                    logo_image = image_match(logo_label.group(2).strip()) if logo_label else None
+                    if logo_label is None or logo_image is None:
+                        self.warnings.append(f"Malformed Affiliation-Logo metadata: {logo_value}")
+                    else:
+                        logos.append(AffiliationLogo(
+                            affiliation_key=logo_label.group(1),
+                            alt=logo_image[0],
+                            path=logo_image[1],
+                            width=logo_image[2],
+                            height=logo_image[3],
+                        ))
                 elif lower.startswith("date:"): date = text.split(":",1)[1].strip()
                 else: return None
             idx += 1
-        return None if idx != len(blocks) else TitlePage(title, subtitle, author, institute, date)
+        if idx != len(blocks):
+            return None
+
+        unique_affiliations: List[Tuple[Optional[str], str]] = []
+        labels = set()
+        for key, affiliation_text in affiliations:
+            if key is not None and key in labels:
+                self.warnings.append(f"Duplicate title-page affiliation label: {key}; using first definition.")
+                continue
+            if key is not None:
+                labels.add(key)
+            unique_affiliations.append((key, affiliation_text))
+
+        referenced = {key for _, refs in authors for key in refs}
+        for key in sorted(referenced - labels):
+            self.warnings.append(f"Undefined title-page affiliation reference: {key}")
+        for key in sorted(labels - referenced):
+            self.warnings.append(f"Unused title-page affiliation label: {key}")
+        for logo in logos:
+            if logo.affiliation_key not in labels:
+                self.warnings.append(
+                    f"Undefined affiliation for title-page logo: {logo.affiliation_key}"
+                )
+
+        return TitlePage(title, subtitle, author, institute, date,
+                         authors=authors, affiliations=unique_affiliations, logos=logos)
     def collect_container(self, stop_at_column=False) -> str:
         """Read a container body without interpreting directives inside code."""
         lines = []
@@ -671,6 +742,58 @@ class BeamerEmitter:
     def emit_document(self, slides: List[Slide]) -> str:
         title_page = next((s.body[0] for s in slides if len(s.body)==1 and isinstance(s.body[0], TitlePage)), None)
         return '\n'.join([self.preamble(title_page)] + [self.emit_slide(s) for s in slides] + [self.postamble()])
+    def emit_title_authors(self, title_page: TitlePage) -> str:
+        affiliation_numbers = {
+            key: number
+            for number, (key, _) in enumerate(
+                ((key, text) for key, text in title_page.affiliations if key is not None),
+                start=1,
+            )
+        }
+        rendered = []
+        for name, refs in title_page.authors:
+            numbers = []
+            for key in refs:
+                number = affiliation_numbers.get(key)
+                if number is not None and number not in numbers:
+                    numbers.append(number)
+            author_text = escape_latex(name)
+            if numbers:
+                author_text += r"\inst{" + ",".join(str(number) for number in numbers) + "}"
+            rendered.append(author_text)
+        return r" \and ".join(rendered)
+    def emit_title_affiliations(self, title_page: TitlePage) -> str:
+        affiliation_numbers = {
+            key: number
+            for number, (key, _) in enumerate(
+                ((key, text) for key, text in title_page.affiliations if key is not None),
+                start=1,
+            )
+        }
+        rendered = []
+        for key, text in title_page.affiliations:
+            prefix = r"\inst{" + str(affiliation_numbers[key]) + "} " if key is not None else ""
+            rendered.append(prefix + escape_latex(text))
+        return r", \quad ".join(rendered)
+    def emit_header_logos(self, title_page: TitlePage) -> str:
+        affiliation_labels = {key for key, _ in title_page.affiliations if key is not None}
+        rendered = []
+        for logo in title_page.logos:
+            if logo.affiliation_key not in affiliation_labels:
+                continue
+            options = []
+            width = self.image_dimension_to_latex(logo.width, None)
+            default_height = None if logo.width is not None else "6mm"
+            height = self.image_dimension_to_latex(logo.height, default_height)
+            if width:
+                options.append(f"width={width}")
+            if height:
+                options.append(f"height={height}")
+            options.append("keepaspectratio")
+            rendered.append(
+                rf"\includegraphics[{','.join(options)}]{{{escape_latex(logo.path)}}}"
+            )
+        return ("%\n" + r"\hspace{2mm}" + "%\n").join(rendered)
     def preamble(self, title_page: Optional[TitlePage]=None) -> str:
         parts = [r"""\PassOptionsToPackage{table}{xcolor}
 \documentclass{beamer}
@@ -699,11 +822,26 @@ class BeamerEmitter:
         if self.innertheme: parts.append(rf"\useinnertheme{{{escape_latex(self.innertheme)}}}")
         if self.outertheme: parts.append(rf"\useoutertheme{{{escape_latex(self.outertheme)}}}")
         parts.append(r"\setbeamertemplate{navigation symbols}{}")
+        parts.append(r"\setbeamertemplate{page number in head/foot}[totalframenumber]")
+        header_logos = self.emit_header_logos(title_page) if title_page is not None else ""
+        if header_logos:
+            parts.append(r"\usepackage{tikz}")
+            parts.append("\\newcommand{\\mdBeamerHeaderLogos}{%\n" + header_logos + "%\n}")
+            parts.append(r"""
+\AddToHook{shipout/foreground}{%
+  \begin{tikzpicture}[remember picture,overlay]
+    \node[anchor=north east,inner sep=0pt,xshift=-2mm,yshift=-1mm]
+      at (current page.north east) {\mdBeamerHeaderLogos};
+  \end{tikzpicture}%
+}
+""")
         if title_page is not None:
             parts.append(rf"\title{{{escape_latex(title_page.title)}}}")
             if title_page.subtitle: parts.append(rf"\subtitle{{{escape_latex(title_page.subtitle)}}}")
-            if title_page.author: parts.append(rf"\author{{{escape_latex(title_page.author)}}}")
-            if title_page.institute: parts.append(rf"\institute{{{escape_latex(title_page.institute)}}}")
+            if title_page.authors: parts.append(rf"\author{{{self.emit_title_authors(title_page)}}}")
+            elif title_page.author: parts.append(rf"\author{{{escape_latex(title_page.author)}}}")
+            if title_page.affiliations: parts.append(rf"\institute{{{self.emit_title_affiliations(title_page)}}}")
+            elif title_page.institute: parts.append(rf"\institute{{{escape_latex(title_page.institute)}}}")
             parts.append(rf"\date{{{escape_latex(title_page.date)}}}" if title_page.date else r"\date{}")
         parts.append(r"""
 \lstset{

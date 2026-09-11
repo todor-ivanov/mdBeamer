@@ -27,16 +27,99 @@ class SyntaxTests(unittest.TestCase):
         self.assertNotIn("fontsize=", tex)
         self.assertEqual(warnings, [])
 
+    def test_title_page_author_affiliation_references(self):
+        source = '''# Presentation
+## Subtitle
+
+- Author: Alice Smith[^university]
+- Author: Bob Jones[^university][^laboratory]
+- Affiliation: [^university] Department of Physics, Example University, [^laboratory] National Research Laboratory
+- Date: 2026-09-11'''
+        tex, warnings = self.convert(source)
+        self.assertIn(r"\author{Alice Smith\inst{1} \and Bob Jones\inst{1,2}}", tex)
+        self.assertIn(r"\institute{\inst{1} Department of Physics, Example University, \quad \inst{2} National Research Laboratory}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_affiliation_logos_are_added_to_every_frame_header(self):
+        source = '''# Presentation
+
+- Author: Alice Smith[^university]
+- Affiliation: [^university] Example University
+- Affiliation-Logo: [^university] ![University](logos/university.pdf){height=7mm}
+- Affiliation-Logo: [^university] ![Department](logos/department.png){width=12mm}
+- Affiliation-Logo: [^university] ![Seal](logos/seal.jpg)'''
+        tex, warnings = self.convert(source)
+        self.assertIn(r"\usepackage{tikz}", tex)
+        self.assertIn(r"\newcommand{\mdBeamerHeaderLogos}", tex)
+        self.assertIn(r"\includegraphics[height=7mm,keepaspectratio]{logos/university.pdf}", tex)
+        self.assertIn(r"\includegraphics[width=12mm,keepaspectratio]{logos/department.png}", tex)
+        self.assertIn(r"\includegraphics[height=6mm,keepaspectratio]{logos/seal.jpg}", tex)
+        self.assertIn(r"\AddToHook{shipout/foreground}", tex)
+        self.assertNotIn(r"\addtobeamertemplate{headline}", tex)
+        self.assertIn(r"at (current page.north east) {\mdBeamerHeaderLogos};", tex)
+        self.assertEqual(warnings, [])
+
+    def test_title_page_affiliation_reference_warnings(self):
+        source = '''# Presentation
+
+- Author: Alice Smith[^missing]
+- Affiliation: [^unused] Example University
+- Institute: [^unused] Duplicate University
+- Affiliation-Logo: [^missing] ![Missing](logos/missing.png)
+- Affiliation-Logo: malformed'''
+        _, warnings = self.convert(source)
+        self.assertTrue(any("Undefined title-page affiliation reference: missing" in warning
+                            for warning in warnings))
+        self.assertTrue(any("Unused title-page affiliation label: unused" in warning
+                            for warning in warnings))
+        self.assertTrue(any("Duplicate title-page affiliation label: unused" in warning
+                            for warning in warnings))
+        self.assertTrue(any("Undefined affiliation for title-page logo: missing" in warning
+                            for warning in warnings))
+        self.assertTrue(any("Malformed Affiliation-Logo metadata: malformed" in warning
+                            for warning in warnings))
+
+    def test_unlabeled_title_page_metadata_remains_supported(self):
+        source = '''# Presentation
+
+- Author: Alice Smith
+- Institute: Example University'''
+        tex, warnings = self.convert(source)
+        self.assertIn(r"\author{Alice Smith}", tex)
+        self.assertIn(r"\institute{Example University}", tex)
+        self.assertEqual(warnings, [])
+
     def test_navigation_symbols_are_disabled(self):
         tex, warnings = self.convert("# Slide\nBody")
         self.assertIn(r"\setbeamertemplate{navigation symbols}{}", tex)
         self.assertLess(tex.index(r"\setbeamertemplate{navigation symbols}{}"),
+                        tex.index(r"\begin{document}"))
+        self.assertIn(r"\setbeamertemplate{page number in head/foot}[totalframenumber]", tex)
+        self.assertLess(tex.index(r"\setbeamertemplate{page number in head/foot}[totalframenumber]"),
                         tex.index(r"\begin{document}"))
         self.assertEqual(warnings, [])
 
     def test_natural_table_alignment_and_paragraph_boundary(self):
         tex, warnings = self.convert("# Table\nText\n| A | B | C |\n| :--- | :---: | ---: |\n| a | b | c |")
         self.assertIn(r"\begin{tabular}{lcr}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_combined_bold_and_italic_inline_syntax(self):
+        source = ("# Inline\n_underscore italic_ and __underscore bold__\n"
+                  "***triple stars*** and ___triple underscores___\n"
+                  "**_bold outside_** and __*bold outside again*__\n"
+                  "*__italic outside__* and _**italic outside again**_")
+        tex, warnings = self.convert(source)
+        self.assertIn(r"\emph{underscore italic}", tex)
+        self.assertIn(r"\textbf{underscore bold}", tex)
+        self.assertIn(r"\textbf{\emph{triple stars}}", tex)
+        self.assertIn(r"\textbf{\emph{triple underscores}}", tex)
+        self.assertIn(r"\textbf{\emph{bold outside}}", tex)
+        self.assertIn(r"\textbf{\emph{bold outside again}}", tex)
+        self.assertIn(r"\emph{\textbf{italic outside}}", tex)
+        self.assertIn(r"\emph{\textbf{italic outside again}}", tex)
+        self.assertNotIn("***", tex)
+        self.assertNotIn("___", tex)
         self.assertEqual(warnings, [])
 
     def test_all_heading_levels_can_be_frame_titles(self):
@@ -274,7 +357,7 @@ Visible'''
                 if shutil.which("pdftotext"):
                     extracted = subprocess.run(["pdftotext", "syntax.pdf", "-"], cwd=path,
                                                capture_output=True, text=True, check=True).stdout
-                    self.assertEqual(extracted.count('\f'), 49)
+                    self.assertEqual(extracted.count('\f'), 50)
                     self.assertIn("Title-only frame", extracted)
 
 

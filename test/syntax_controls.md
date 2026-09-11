@@ -1,9 +1,11 @@
 # Syntax controls
 ## Compilation fixture
 
-- Author: mdBeamer
-- Affiliation: Syntax reference examples
-- Institute: mdBeamer test suite
+- Author: mdBeamer[^suite]
+- Author: Syntax Tester[^suite][^examples]
+- Affiliation: [^suite] mdBeamer test suite, [^examples] Syntax reference examples
+- Affiliation-Logo: [^suite] ![mdBeamer](png/cms-data-model_diagram_01.png)
+- Affiliation-Logo: [^examples] ![Syntax examples](png/cms-data-model_diagram_01.png){width=8mm}
 - Date: 2026-09-10
 
 ---
@@ -120,6 +122,7 @@ title metadata, including the affiliation and institute aliases.
 - Images use the existing files under the test directory's `png/` folder.
 - Oversized table examples intentionally exceed the normal text width.
 - Command-line examples are displayed as code; they do not execute commands.
+- Navigation controls are hidden and the footer shows current and total frames.
 
 ---
 
@@ -166,13 +169,40 @@ The next line is a literal hash, not a heading:
 This paragraph spans two source lines
 which are joined with a space.
 
-This is a separate paragraph with **bold**, *italic*, and `inline_code()`.
+This is a separate paragraph with **bold**, __underscore bold__, *italic*,
+_underscore italic_, and `inline_code()`.
+
+Combined emphasis accepts ***triple stars*** and ___triple underscores___.
+
+Mixed delimiters also work: **_bold outside_**, __*bold outside again*__,
+*__italic outside__*, and _**italic outside again**_.
 
 An [ordinary link](https://example.org) and a [**bold label**](https://example.org/docs).
 
 Literal LaTeX-sensitive characters are escaped: \ { } $ & % # _ ^ ~.
 
 Inline code also preserves these characters: `a_b = {x: 50%}; $ & # \`.
+
+---
+
+# HTML comments[fontsize=\small]
+
+This sentence has an <!-- ignored inline note --> invisible inline comment.
+
+<!-- This complete comment line is omitted. -->
+
+The following multiline comment contains Markdown structure, but it does not
+create slides, headings, directives, or footnotes.
+
+<!--
+---
+# Hidden heading
+::: fontsize=\tiny
+[^hidden]: Hidden footnote
+:::
+-->
+
+This text remains on the same slide after the multiline comment.
 
 ---
 
@@ -206,6 +236,7 @@ Inline code also preserves these characters: `a_b = {x: 50%}; $ & # \`.
 
 ```
 Unlabelled backtick fence.
+<!-- HTML comment syntax stays literal inside a fence. -->
 ---
 The separator above stays inside the listing.
 ```

@@ -152,8 +152,11 @@ The converter automatically recognizes this structure:
 # Presentation title
 ## Optional subtitle
 
-- Author: Todor Ivanov
-- Affiliation: University of Notre Dame
+- Author: Alice Smith[^university]
+- Author: Bob Jones[^university][^laboratory]
+- Affiliation: [^university] Example University, [^laboratory] National Research Laboratory
+- Affiliation-Logo: [^university] ![Example University](logos/university.pdf){height=7mm}
+- Affiliation-Logo: [^laboratory] ![Research Laboratory](logos/laboratory.png){height=7mm}
 - Date: 09-09-2026
 ```
 
@@ -161,12 +164,32 @@ The title is required. The subtitle and metadata list are optional.
 
 | Key | Output |
 | --- | --- |
-| `Author:` | `\author{...}` |
-| `Affiliation:` | `\institute{...}` |
+| `Author:` | An author, optionally followed by one or more `[^affiliation]` labels |
+| `Affiliation:` | An institution, optionally beginning with its `[^label]` |
 | `Institute:` | Alias for `Affiliation:` |
+| `Affiliation-Logo:` | A labeled affiliation logo shown in every frame header |
 | `Date:` | `\date{...}` |
 
-Metadata keys are case-insensitive. Values are plain text.
+Metadata keys are case-insensitive. Multiple authors and affiliations are
+allowed. On the title slide, affiliation labels become Beamer `\inst{...}`
+numbers; they are separate from ordinary slide footnotes. A reference must
+match a labeled affiliation on that title slide. Undefined references, unused
+labels, and duplicate labels produce warnings. Unlabeled author and affiliation
+values remain supported for simple title pages. Affiliations may use separate
+metadata items or share one item when a comma before each subsequent
+`[^label]` separates them. Commas elsewhere remain part of the institution name.
+Multiple institutions are rendered inline, separated by a comma and horizontal
+spacing; TeX may still wrap exceptionally long content to fit the title page.
+
+Each `Affiliation-Logo:` value requires an existing affiliation label followed
+by Markdown image syntax. Repeating the metadata item adds more logos, including
+multiple logos for the same affiliation. `width` and `height` use the ordinary
+image-dimension formats; a logo without either attribute defaults to `height=6mm`.
+Logos are arranged horizontally with 2 mm gaps in a shipout-foreground overlay
+at the upper-right corner of every frame. Drawing at shipout keeps them above
+theme header strips such as Warsaw's. PDF, PNG, and JPEG files work with the
+generated `\includegraphics` command. Undefined labels and malformed logo
+metadata produce warnings.
 
 Recognition requires the slide to contain exactly:
 
@@ -199,7 +222,11 @@ spaces are not implemented.
 | Syntax | Output |
 | --- | --- |
 | `**bold**` | Bold text |
+| `__bold__` | Bold text |
 | `*italic*` | Emphasized text |
+| `_italic_` | Emphasized text |
+| `***bold italic***` or `___bold italic___` | Bold and emphasized text |
+| `**_bold italic_**`, `__*bold italic*__`, `*__bold italic__*`, or `_**bold italic**_` | Nested bold and emphasized text |
 | `` `code` `` | Monospaced text |
 | `[label](https://example.org)` | Hyperlink |
 | `[^key]` | Footnote reference |
@@ -208,7 +235,6 @@ Inline formatting works in paragraphs, list items, link labels, and table cells.
 
 Limitations:
 
-- `_italic_` and `__bold__` are unsupported.
 - Strikethrough is unsupported.
 - Multi-backtick inline code is unsupported.
 - Complex nesting and escaped delimiters are not reliably supported.
