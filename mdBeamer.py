@@ -234,6 +234,52 @@ def begin_fence(line: str) -> Optional[Tuple[str, str]]:
     if stripped.startswith("~~~"): return "~~~", stripped[3:].strip()
     return None
 
+def strip_html_comments(text: str, warnings: Optional[List[str]] = None) -> str:
+    """Remove HTML comments outside fenced code while preserving line breaks."""
+    output: List[str] = []
+    in_comment = False
+    code_fence = None
+
+    for line in text.split('\n'):
+        stripped = line.strip()
+        if code_fence is not None:
+            output.append(line)
+            if stripped == code_fence:
+                code_fence = None
+            continue
+
+        if not in_comment:
+            opening = begin_fence(line)
+            if opening is not None:
+                code_fence = opening[0]
+                output.append(line)
+                continue
+
+        kept: List[str] = []
+        position = 0
+        while position < len(line):
+            if in_comment:
+                end = line.find("-->", position)
+                if end == -1:
+                    position = len(line)
+                else:
+                    in_comment = False
+                    position = end + 3
+            else:
+                start = line.find("<!--", position)
+                if start == -1:
+                    kept.append(line[position:])
+                    position = len(line)
+                else:
+                    kept.append(line[position:start])
+                    in_comment = True
+                    position = start + 4
+        output.append(''.join(kept))
+
+    if in_comment and warnings is not None:
+        warnings.append("Unclosed HTML comment; ignored through end of document.")
+    return '\n'.join(output)
+
 def parse_fence_info(info: str):
     info = info.strip()
     if not info:
@@ -943,6 +989,7 @@ def md_to_beamer(markdown_text: str, theme=None, colortheme=None, fonttheme=None
     markdown_text = normalize_newlines(markdown_text)
     slides = []
     warnings = []
+    markdown_text = strip_html_comments(markdown_text, warnings)
     for s in split_slides(markdown_text):
         if not s.strip():
             continue

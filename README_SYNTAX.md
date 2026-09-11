@@ -36,6 +36,24 @@ Content of the second slide.
   font-size block.
 - YAML front matter is not supported.
 
+### HTML comments
+
+HTML comments are ignored outside fenced code. Both inline and multiline forms
+are supported:
+
+```markdown
+Visible text <!-- hidden note --> continues here.
+
+<!--
+This entire block is ignored, including syntax such as --- or # Heading.
+-->
+```
+
+Line breaks occupied by comments are preserved, so a comment-only line remains
+a block boundary. Inside fenced code, `<!-- ... -->` remains literal code. An
+unclosed HTML comment is ignored through the end of the document and produces a
+warning.
+
 ## 2. Headings
 
 Headings require one to six `#` characters followed by whitespace.

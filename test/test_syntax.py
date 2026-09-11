@@ -164,6 +164,45 @@ some more text and bullets here
         self.assertIn(r"\begin{frame}[fragile]", tex)
         self.assertEqual(warnings, [])
 
+    def test_html_comments_are_ignored(self):
+        source = '# T\nBefore <!-- inline note --> after\n<!-- full-line note -->\nVisible'
+        tex, warnings = self.convert(source)
+        self.assertIn('Before  after', tex)
+        self.assertIn('Visible', tex)
+        self.assertNotIn('inline note', tex)
+        self.assertNotIn('full-line note', tex)
+        self.assertNotIn('<!--', tex)
+        self.assertEqual(warnings, [])
+
+    def test_multiline_html_comments_cannot_change_document_structure(self):
+        source = '''# T
+<!--
+---
+# Hidden heading
+::: fontsize=\\tiny
+[^hidden]: Hidden footnote
+-->
+Visible'''
+        tex, warnings = self.convert(source)
+        self.assertEqual(tex.count(r"\begin{frame}"), 1)
+        self.assertIn('Visible', tex)
+        self.assertNotIn('Hidden heading', tex)
+        self.assertNotIn('Hidden footnote', tex)
+        self.assertEqual(warnings, [])
+
+    def test_html_comment_syntax_inside_code_is_literal(self):
+        source = '# T\n```text\n<!-- keep this -->\n---\n```'
+        tex, warnings = self.convert(source)
+        self.assertEqual(tex.count(r"\begin{frame}"), 1)
+        self.assertIn('<!-- keep this -->\n---', tex)
+        self.assertEqual(warnings, [])
+
+    def test_unclosed_html_comment_is_ignored_with_warning(self):
+        tex, warnings = self.convert('# T\nVisible\n<!-- hidden through EOF')
+        self.assertIn('Visible', tex)
+        self.assertNotIn('hidden through EOF', tex)
+        self.assertTrue(any('Unclosed HTML comment' in warning for warning in warnings))
+
     def test_code_fontsize_validation(self):
         tex, warnings = self.convert('# T\n```Python[fontsize=invalid]\nprint(1)\n```')
         self.assertIn(r"basicstyle=\ttfamily\normalsize", tex)
