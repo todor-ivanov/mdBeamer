@@ -745,13 +745,40 @@ class BlockParser:
         return items, current_indent
 
 class BeamerEmitter:
-    def __init__(self, theme=None, colortheme=None, fonttheme=None, innertheme=None, outertheme=None):
+    def __init__(self, theme=None, colortheme=None, fonttheme=None, innertheme=None, outertheme=None,
+                 text_margin_left="5mm", text_margin_right="5mm",
+                 list_indent_1=None, list_indent_2=None, list_indent_3=None,
+                 list_label_sep="0.35em", list_item_sep="0.15em",
+                 list_top_sep="0.2em", list_parse_sep="0pt", list_indent=None):
         self.warnings: List[str] = []
         self.theme=theme; self.colortheme=colortheme; self.fonttheme=fonttheme; self.innertheme=innertheme; self.outertheme=outertheme
+        self.text_margin_left = self.validate_layout_length(text_margin_left, "text margin left", "5mm")
+        self.text_margin_right = self.validate_layout_length(text_margin_right, "text margin right", "5mm")
+        common_indent = (self.validate_layout_length(list_indent, "list indent", "1.5em")
+                         if list_indent is not None else None)
+        indent_defaults = (common_indent or "1.5em", common_indent or "1.25em", common_indent or "1.1em")
+        self.list_indent_1 = (self.validate_layout_length(list_indent_1, "list indent 1", indent_defaults[0])
+                              if list_indent_1 is not None else indent_defaults[0])
+        self.list_indent_2 = (self.validate_layout_length(list_indent_2, "list indent 2", indent_defaults[1])
+                              if list_indent_2 is not None else indent_defaults[1])
+        self.list_indent_3 = (self.validate_layout_length(list_indent_3, "list indent 3", indent_defaults[2])
+                              if list_indent_3 is not None else indent_defaults[2])
+        self.list_label_sep = self.validate_layout_length(list_label_sep, "list label separation", "0.35em")
+        self.list_item_sep = self.validate_layout_length(list_item_sep, "list item separation", "0.15em")
+        self.list_top_sep = self.validate_layout_length(list_top_sep, "list top separation", "0.2em")
+        self.list_parse_sep = self.validate_layout_length(list_parse_sep, "list paragraph separation", "0pt")
         self.current_fontsize: Optional[str] = None
         self.current_footnotes = {}
         self.in_columns = False
         self.pending_column_footnotes = []
+    def validate_layout_length(self, value: str, name: str, default: str) -> str:
+        candidate = value.strip()
+        if candidate == "0":
+            return "0pt"
+        if re.fullmatch(r'(?:\d+(?:\.\d*)?|\.\d+)(?:pt|mm|cm|in|em|ex|pc|bp|dd|cc|sp)', candidate):
+            return candidate
+        self.warnings.append(f"Invalid {name}: {value}; using {default}")
+        return default
     def emit_document(self, slides: List[Slide]) -> str:
         title_page = next((s.body[0] for s in slides if len(s.body)==1 and isinstance(s.body[0], TitlePage)), None)
         return '\n'.join([self.preamble(title_page)] + [self.emit_slide(s) for s in slides] + [self.postamble()])
@@ -834,6 +861,36 @@ class BeamerEmitter:
         if self.fonttheme: parts.append(rf"\usefonttheme{{{escape_latex(self.fonttheme)}}}")
         if self.innertheme: parts.append(rf"\useinnertheme{{{escape_latex(self.innertheme)}}}")
         if self.outertheme: parts.append(rf"\useoutertheme{{{escape_latex(self.outertheme)}}}")
+        parts.append(
+            r"\setbeamersize{text margin left=" + self.text_margin_left
+            + ",text margin right=" + self.text_margin_right + "}"
+        )
+        parts.append(r"\setlength{\leftmargini}{" + self.list_indent_1 + "}")
+        parts.append(r"\setlength{\leftmarginii}{" + self.list_indent_2 + "}")
+        parts.append(r"\setlength{\leftmarginiii}{" + self.list_indent_3 + "}")
+        parts.append(r"\setlength{\labelsep}{" + self.list_label_sep + "}")
+        # LaTeX reads topsep while opening a list, so setting it only inside the
+        # environment is too late to control the space before the first item.
+        # Define all three supported levels after loading the selected themes.
+        parts.append(
+            "\\makeatletter\n"
+            "\\def\\@listi{\\leftmargin\\leftmargini"
+            "\\labelwidth\\leftmargini\\advance\\labelwidth-\\labelsep"
+            "\\topsep" + self.list_top_sep
+            + "\\parsep" + self.list_parse_sep
+            + "\\itemsep" + self.list_item_sep + "\\partopsep0pt}\n"
+            "\\def\\@listii{\\leftmargin\\leftmarginii"
+            "\\labelwidth\\leftmarginii\\advance\\labelwidth-\\labelsep"
+            "\\topsep" + self.list_top_sep
+            + "\\parsep" + self.list_parse_sep
+            + "\\itemsep" + self.list_item_sep + "\\partopsep0pt}\n"
+            "\\def\\@listiii{\\leftmargin\\leftmarginiii"
+            "\\labelwidth\\leftmarginiii\\advance\\labelwidth-\\labelsep"
+            "\\topsep" + self.list_top_sep
+            + "\\parsep" + self.list_parse_sep
+            + "\\itemsep" + self.list_item_sep + "\\partopsep0pt}\n"
+            "\\makeatother"
+        )
         parts.append(r"\setbeamertemplate{navigation symbols}{}")
         parts.append(r"\setbeamertemplate{page number in head/foot}[totalframenumber]")
         header_logos = self.emit_header_logos(title_page) if title_page is not None else ""
@@ -1016,6 +1073,9 @@ class BeamerEmitter:
             self.warnings.append(f"List nesting depth {depth} exceeds Beamer-safe limit 3; flattening deeper levels.")
             return "\n".join(r"\textbf{-} " + self.emit_inlines(parse_inlines(i.text)) for i in items)
         out=[rf"\begin{{{env}}}"]
+        out.append(r"\setlength{\itemsep}{" + self.list_item_sep + "}")
+        out.append(r"\setlength{\topsep}{" + self.list_top_sep + "}")
+        out.append(r"\setlength{\parsep}{" + self.list_parse_sep + "}")
         # Beamer resets the font at every list depth; apply the inherited size
         # after entering each environment, including nested lists.
         if self.current_fontsize:
@@ -1153,7 +1213,11 @@ class BeamerEmitter:
             else: out.append(escape_latex(str(node)))
         return ''.join(out)
 
-def md_to_beamer(markdown_text: str, theme=None, colortheme=None, fonttheme=None, innertheme=None, outertheme=None):
+def md_to_beamer(markdown_text: str, theme=None, colortheme=None, fonttheme=None, innertheme=None, outertheme=None,
+                 text_margin_left="5mm", text_margin_right="5mm",
+                 list_indent_1=None, list_indent_2=None, list_indent_3=None,
+                 list_label_sep="0.35em", list_item_sep="0.15em",
+                 list_top_sep="0.2em", list_parse_sep="0pt", list_indent=None):
     markdown_text = normalize_newlines(markdown_text)
     slides = []
     warnings = []
@@ -1163,7 +1227,19 @@ def md_to_beamer(markdown_text: str, theme=None, colortheme=None, fonttheme=None
             continue
         clean_s, footnotes = extract_footnote_definitions(s)
         slides.append(BlockParser(clean_s, footnotes=footnotes, warnings=warnings).parse(allow_title_page=not slides))
-    emitter=BeamerEmitter(theme,colortheme,fonttheme,innertheme,outertheme)
+    emitter = BeamerEmitter(
+        theme, colortheme, fonttheme, innertheme, outertheme,
+        text_margin_left=text_margin_left,
+        text_margin_right=text_margin_right,
+        list_indent_1=list_indent_1,
+        list_indent_2=list_indent_2,
+        list_indent_3=list_indent_3,
+        list_label_sep=list_label_sep,
+        list_item_sep=list_item_sep,
+        list_top_sep=list_top_sep,
+        list_parse_sep=list_parse_sep,
+        list_indent=list_indent,
+    )
     emitter.warnings.extend(warnings)
     return emitter.emit_document(slides), emitter.warnings
 
@@ -1177,9 +1253,41 @@ def main() -> int:
     parser.add_argument("--fonttheme", type=str, default=None)
     parser.add_argument("--innertheme", type=str, default=None)
     parser.add_argument("--outertheme", type=str, default=None)
+    parser.add_argument("--text-margin-left", default="5mm", metavar="LENGTH",
+                        help="left frame text margin (default: 5mm)")
+    parser.add_argument("--text-margin-right", default="5mm", metavar="LENGTH",
+                        help="right frame text margin (default: 5mm)")
+    parser.add_argument("--list-indent", default=None, metavar="LENGTH",
+                        help="indentation for every list level")
+    parser.add_argument("--list-indent-1", default=None, metavar="LENGTH",
+                        help="first-level list indentation (default: 1.5em)")
+    parser.add_argument("--list-indent-2", default=None, metavar="LENGTH",
+                        help="second-level list indentation (default: 1.25em)")
+    parser.add_argument("--list-indent-3", default=None, metavar="LENGTH",
+                        help="third-level list indentation (default: 1.1em)")
+    parser.add_argument("--list-label-sep", default="0.35em", metavar="LENGTH",
+                        help="space between a list marker and its text (default: 0.35em)")
+    parser.add_argument("--list-item-sep", default="0.15em", metavar="LENGTH",
+                        help="vertical space between list items (default: 0.15em)")
+    parser.add_argument("--list-top-sep", default="0.2em", metavar="LENGTH",
+                        help="vertical space above and below a list (default: 0.2em)")
+    parser.add_argument("--list-parse-sep", default="0pt", metavar="LENGTH",
+                        help="vertical space between paragraphs in an item (default: 0pt)")
     args=parser.parse_args()
     md_text=args.input_md.read_text(encoding="utf-8")
-    latex,warnings=md_to_beamer(md_text,args.theme,args.colortheme,args.fonttheme,args.innertheme,args.outertheme)
+    latex, warnings = md_to_beamer(
+        md_text, args.theme, args.colortheme, args.fonttheme, args.innertheme, args.outertheme,
+        text_margin_left=args.text_margin_left,
+        text_margin_right=args.text_margin_right,
+        list_indent_1=args.list_indent_1,
+        list_indent_2=args.list_indent_2,
+        list_indent_3=args.list_indent_3,
+        list_label_sep=args.list_label_sep,
+        list_item_sep=args.list_item_sep,
+        list_top_sep=args.list_top_sep,
+        list_parse_sep=args.list_parse_sep,
+        list_indent=args.list_indent,
+    )
     args.output.write_text(latex, encoding="utf-8")
     if args.warnings is not None: args.warnings.write_text("\n".join(warnings), encoding="utf-8")
     return 0

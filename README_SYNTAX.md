@@ -286,6 +286,25 @@ Limitations:
 For predictable output, use one list type within each nested list structure and
 limit nesting to three levels.
 
+Frame margins and list spacing can be adjusted from the command line. The
+compact defaults are equivalent to:
+
+```bash
+--text-margin-left 5mm --text-margin-right 5mm \
+--list-indent-1 1.5em --list-indent-2 1.25em --list-indent-3 1.1em \
+--list-label-sep 0.35em --list-item-sep 0.15em \
+--list-top-sep 0.2em --list-parse-sep 0pt
+```
+
+The three indent values control the total width reserved for each nesting
+level. Use `--list-indent 1.2em` to assign one value to all three levels. A
+level-specific option takes priority when both forms are supplied; for example,
+`--list-indent 1.2em --list-indent-2 1em` uses `1em` only at level two.
+`--list-label-sep` controls the horizontal gap between the marker and the item
+text. The remaining list options control vertical space between items, around
+each list, and between paragraphs within an item. Values must be nonnegative
+TeX lengths such as `4mm`, `1.2em`, or `0pt`; plain `0` is also accepted.
+
 ## 6. Fenced code blocks
 
 Both backticks and tildes are supported:
@@ -793,6 +812,8 @@ From the `mdBeamer/` directory, generate TeX with:
 python3 mdBeamer.py presentation.md \
   -o presentation.tex \
   --theme Warsaw \
+  --text-margin-left 5mm \
+  --list-indent-1 1.5em \
   --warnings presentation.warnings.txt
 ```
 
@@ -806,6 +827,13 @@ python3 mdBeamer.py presentation.md \
 | `--fonttheme` | Beamer font theme |
 | `--innertheme` | Beamer inner theme |
 | `--outertheme` | Beamer outer theme |
+| `--text-margin-left`, `--text-margin-right` | Left and right frame text margins (default: `5mm`) |
+| `--list-indent` | Shared indentation for all three list levels |
+| `--list-indent-1`, `--list-indent-2`, `--list-indent-3` | Indentation for the three supported list levels (defaults: `1.5em`, `1.25em`, `1.1em`) |
+| `--list-label-sep` | Gap between a list marker and its text (default: `0.35em`) |
+| `--list-item-sep` | Vertical gap between list items (default: `0.15em`) |
+| `--list-top-sep` | Vertical gap above and below each list (default: `0.2em`) |
+| `--list-parse-sep` | Vertical gap between paragraphs in an item (default: `0pt`) |
 | `-h`, `--help` | Usage information |
 
 The Python script writes a complete Beamer document. It does not compile the

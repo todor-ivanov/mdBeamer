@@ -16,8 +16,8 @@ spec.loader.exec_module(md)
 
 
 class SyntaxTests(unittest.TestCase):
-    def convert(self, source):
-        return md.md_to_beamer(source)
+    def convert(self, source, **kwargs):
+        return md.md_to_beamer(source, **kwargs)
 
     def test_slide_title_attributes_and_title_only_frames(self):
         tex, warnings = self.convert("# Opening\n---\n# Later[fontsize=\\tiny]\n---\nBefore\n\n# Content[fontsize=\\small]\nBody")
@@ -98,6 +98,65 @@ class SyntaxTests(unittest.TestCase):
         self.assertLess(tex.index(r"\setbeamertemplate{page number in head/foot}[totalframenumber]"),
                         tex.index(r"\begin{document}"))
         self.assertEqual(warnings, [])
+
+    def test_compact_layout_defaults_are_emitted(self):
+        tex, warnings = self.convert("# Lists\n- One\n  - Two\n    - Three")
+        preamble = tex[:tex.index(r"\begin{document}")]
+        self.assertIn(r"\setbeamersize{text margin left=5mm,text margin right=5mm}", preamble)
+        self.assertIn(r"\setlength{\leftmargini}{1.5em}", preamble)
+        self.assertIn(r"\setlength{\leftmarginii}{1.25em}", preamble)
+        self.assertIn(r"\setlength{\leftmarginiii}{1.1em}", preamble)
+        self.assertIn(r"\setlength{\labelsep}{0.35em}", preamble)
+        self.assertIn(r"\def\@listi{\leftmargin\leftmargini\labelwidth\leftmargini\advance\labelwidth-\labelsep\topsep0.2em\parsep0pt\itemsep0.15em\partopsep0pt}", preamble)
+        self.assertEqual(tex.count(r"\setlength{\itemsep}{0.15em}"), 3)
+        self.assertEqual(tex.count(r"\setlength{\topsep}{0.2em}"), 3)
+        self.assertEqual(tex.count(r"\setlength{\parsep}{0pt}"), 3)
+        self.assertEqual(warnings, [])
+
+    def test_layout_values_can_be_customized(self):
+        tex, warnings = self.convert(
+            "# Lists\n- One",
+            text_margin_left="3mm", text_margin_right="4mm",
+            list_indent_1="1em", list_indent_2="0.9em", list_indent_3="0.8em",
+            list_label_sep="0.2em", list_item_sep="1pt",
+            list_top_sep="2pt", list_parse_sep="0",
+        )
+        self.assertIn(r"\setbeamersize{text margin left=3mm,text margin right=4mm}", tex)
+        self.assertIn(r"\setlength{\leftmargini}{1em}", tex)
+        self.assertIn(r"\setlength{\leftmarginii}{0.9em}", tex)
+        self.assertIn(r"\setlength{\leftmarginiii}{0.8em}", tex)
+        self.assertIn(r"\setlength{\labelsep}{0.2em}", tex)
+        self.assertIn(r"\setlength{\itemsep}{1pt}", tex)
+        self.assertIn(r"\setlength{\topsep}{2pt}", tex)
+        self.assertIn(r"\setlength{\parsep}{0pt}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_common_list_indent_applies_to_every_level_with_specific_overrides(self):
+        tex, warnings = self.convert("# Lists\n- One", list_indent="1.2em")
+        self.assertIn(r"\setlength{\leftmargini}{1.2em}", tex)
+        self.assertIn(r"\setlength{\leftmarginii}{1.2em}", tex)
+        self.assertIn(r"\setlength{\leftmarginiii}{1.2em}", tex)
+        self.assertEqual(warnings, [])
+
+        tex, warnings = self.convert(
+            "# Lists\n- One", list_indent="1.2em", list_indent_2="0.9em"
+        )
+        self.assertIn(r"\setlength{\leftmargini}{1.2em}", tex)
+        self.assertIn(r"\setlength{\leftmarginii}{0.9em}", tex)
+        self.assertIn(r"\setlength{\leftmarginiii}{1.2em}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_invalid_layout_values_warn_and_use_defaults(self):
+        tex, warnings = self.convert(
+            "# Lists\n- One", text_margin_left="-2mm", list_indent_1="wide",
+            list_item_sep="2", list_top_sep=r"1\baselineskip",
+        )
+        self.assertIn(r"\setbeamersize{text margin left=5mm,text margin right=5mm}", tex)
+        self.assertIn(r"\setlength{\leftmargini}{1.5em}", tex)
+        self.assertIn(r"\setlength{\itemsep}{0.15em}", tex)
+        self.assertIn(r"\setlength{\topsep}{0.2em}", tex)
+        self.assertEqual(len(warnings), 4)
+        self.assertTrue(all(warning.startswith("Invalid ") for warning in warnings))
 
     def test_natural_table_alignment_and_paragraph_boundary(self):
         tex, warnings = self.convert("# Table\nText\n| A | B | C |\n| :--- | :---: | ---: |\n| a | b | c |")

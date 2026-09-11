@@ -29,7 +29,14 @@ Beamer-specific extensions, examples, and current limitations.
 ## Usage:
 
 ```
-usage: mdBeamer.py [-h] -o OUTPUT [--warnings WARNINGS] [--theme THEME] [--colortheme COLORTHEME] [--fonttheme FONTTHEME] [--innertheme INNERTHEME] [--outertheme OUTERTHEME]
+usage: mdBeamer.py [-h] -o OUTPUT [--warnings WARNINGS] [--theme THEME]
+                   [--colortheme COLORTHEME] [--fonttheme FONTTHEME]
+                   [--innertheme INNERTHEME] [--outertheme OUTERTHEME]
+                   [--text-margin-left LENGTH] [--text-margin-right LENGTH]
+                   [--list-indent LENGTH] [--list-indent-1 LENGTH]
+                   [--list-indent-2 LENGTH] [--list-indent-3 LENGTH]
+                   [--list-label-sep LENGTH] [--list-item-sep LENGTH]
+                   [--list-top-sep LENGTH] [--list-parse-sep LENGTH]
                    input_md
 
 positional arguments:
@@ -44,6 +51,25 @@ options:
   --fonttheme FONTTHEME
   --innertheme INNERTHEME
   --outertheme OUTERTHEME
+  --text-margin-left LENGTH
+                        left frame text margin (default: 5mm)
+  --text-margin-right LENGTH
+                        right frame text margin (default: 5mm)
+  --list-indent LENGTH  indentation for every list level
+  --list-indent-1 LENGTH
+                        first-level list indentation (default: 1.5em)
+  --list-indent-2 LENGTH
+                        second-level list indentation (default: 1.25em)
+  --list-indent-3 LENGTH
+                        third-level list indentation (default: 1.1em)
+  --list-label-sep LENGTH
+                        space between a list marker and its text (default: 0.35em)
+  --list-item-sep LENGTH
+                        vertical space between list items (default: 0.15em)
+  --list-top-sep LENGTH
+                        vertical space above and below a list (default: 0.2em)
+  --list-parse-sep LENGTH
+                        vertical space between paragraphs in an item (default: 0pt)
 ```
 
 ## Example:

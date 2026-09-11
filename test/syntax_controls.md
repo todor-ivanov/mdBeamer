@@ -764,7 +764,12 @@ python3 mdBeamer.py -h
 ```[fontsize=\tiny]
 python3 mdBeamer.py input.md -o output.tex \
   --theme Warsaw --colortheme dove --fonttheme professionalfonts \
-  --innertheme rectangles --outertheme infolines
+  --innertheme rectangles --outertheme infolines \
+  --text-margin-left 5mm --text-margin-right 5mm \
+  --list-indent 1.2em \
+  --list-indent-1 1.5em --list-indent-2 1.25em --list-indent-3 1.1em \
+  --list-label-sep 0.35em --list-item-sep 0.15em \
+  --list-top-sep 0.2em --list-parse-sep 0pt
 ```
 
 ---
