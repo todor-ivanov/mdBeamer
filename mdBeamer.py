@@ -14,6 +14,8 @@ class Inline: pass
 @dataclass
 class Text(Inline): value: str
 @dataclass
+class MathInline(Inline): content: str
+@dataclass
 class Bold(Inline): children: List[Inline]
 @dataclass
 class Italic(Inline): children: List[Inline]
@@ -38,6 +40,8 @@ class Heading(Block):
     source_line: Optional[int] = None
 @dataclass
 class Paragraph(Block): lines: List[str]
+@dataclass
+class MathBlock(Block): content: str
 @dataclass
 class ImageBlock(Block):
     alt: str
@@ -416,14 +420,20 @@ def extract_footnote_definitions(text: str):
         footnotes[key] = FootnoteDefinition(value, fontsize)
     return "\n".join(kept), footnotes
 
-INLINE_TOKEN_RE = re.compile(r'(\*\*\*[^*]+\*\*\*|___[^_]+___|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[\^[^\]]+\])')
+INLINE_TOKEN_RE = re.compile(
+    r'((?<!\\)\$(?![\s$])(?:\\.|[^\\$\n])*(?<![\s\\])\$|'
+    r'\*\*\*[^*]+\*\*\*|___[^_]+___|\*\*[^*]+\*\*|__[^_]+__|'
+    r'\*[^*]+\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[\^[^\]]+\])'
+)
 
 def parse_inlines(text: str) -> List[Inline]:
     parts = INLINE_TOKEN_RE.split(text)
     out: List[Inline] = []
     for part in parts:
         if not part: continue
-        if part.startswith("***") and part.endswith("***") and len(part) >= 6:
+        if part.startswith("$") and part.endswith("$") and len(part) >= 3:
+            out.append(MathInline(part[1:-1]))
+        elif part.startswith("***") and part.endswith("***") and len(part) >= 6:
             out.append(Bold([Italic(parse_inlines(part[3:-3]))]))
         elif part.startswith("___") and part.endswith("___") and len(part) >= 6:
             out.append(Bold([Italic(parse_inlines(part[3:-3]))]))
@@ -646,6 +656,8 @@ class BlockParser:
                 blocks.append(self.parse_columns()); continue
             if begin_fence(line):
                 blocks.append(self.parse_code_block()); continue
+            if line.strip().startswith("$$"):
+                blocks.append(self.parse_math_block()); continue
             if "|" in line and (self.i + 1) < len(self.lines) and is_table_separator_line(self.lines[self.i + 1]):
                 blocks.append(self.parse_table()); continue
             hm = heading_match(line)
@@ -676,11 +688,34 @@ class BlockParser:
             if line.strip() == fence: break
             content_lines.append(line)
         return CodeBlock(language, '\n'.join(content_lines), fontsize)
+    def parse_math_block(self) -> MathBlock:
+        opening = self.advance().strip()
+        content_lines: List[str] = []
+        remainder = opening[2:]
+        if remainder.endswith("$$"):
+            return MathBlock(remainder[:-2].strip())
+        if remainder:
+            content_lines.append(remainder)
+        closed = False
+        while not self.eof():
+            line = self.advance()
+            stripped = line.strip()
+            if stripped == "$$":
+                closed = True
+                break
+            if stripped.endswith("$$"):
+                content_lines.append(line[:line.rfind("$$")])
+                closed = True
+                break
+            content_lines.append(line)
+        if not closed:
+            self.warnings.append("Unclosed display math block; closed at end of slide.")
+        return MathBlock('\n'.join(content_lines).strip())
     def parse_paragraph(self) -> Paragraph:
         lines: List[str] = []
         while not self.eof():
             line = self.peek()
-            if line.strip()=="" or heading_match(line) or begin_fence(line) or directive_columns_start(line) or directive_fontsize_start(line) is not None or directive_table_start(line) is not None or image_match(line.strip()) or bullet_match(line) is not None or enum_match(line) is not None or ("|" in line and self.i + 1 < len(self.lines) and is_table_separator_line(self.lines[self.i + 1])):
+            if line.strip()=="" or line.strip().startswith("$$") or heading_match(line) or begin_fence(line) or directive_columns_start(line) or directive_fontsize_start(line) is not None or directive_table_start(line) is not None or image_match(line.strip()) or bullet_match(line) is not None or enum_match(line) is not None or ("|" in line and self.i + 1 < len(self.lines) and is_table_separator_line(self.lines[self.i + 1])):
                 break
             lines.append(self.advance())
         return Paragraph(lines)
@@ -987,6 +1022,7 @@ class BeamerEmitter:
             return "{%s\n%s\n}" % (size, "\n".join(inner))
         if isinstance(block, TitlePage): return r"\titlepage"
         if isinstance(block, Paragraph): return self.emit_inlines(parse_inlines(' '.join(line.strip() for line in block.lines))) + "\n"
+        if isinstance(block, MathBlock): return "\\[\n" + block.content + "\n\\]"
         if isinstance(block, Heading): return r"\medskip" + "\n" + r"\textbf{" + escape_latex(block.text) + "}" + "\n"
         if isinstance(block, ImageBlock):
             opts=[]; path=escape_latex(block.path)
@@ -1183,6 +1219,7 @@ class BeamerEmitter:
         out=[]
         for node in inlines:
             if isinstance(node, Text): out.append(escape_latex(node.value))
+            elif isinstance(node, MathInline): out.append("$" + node.content + "$")
             elif isinstance(node, Bold): out.append(r"\textbf{" + self.emit_inlines(node.children) + "}")
             elif isinstance(node, Italic): out.append(r"\emph{" + self.emit_inlines(node.children) + "}")
             elif isinstance(node, Code): out.append(r"\texttt{" + escape_latex(node.value) + "}")

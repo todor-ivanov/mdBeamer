@@ -181,6 +181,31 @@ class SyntaxTests(unittest.TestCase):
         self.assertNotIn("___", tex)
         self.assertEqual(warnings, [])
 
+    def test_inline_and_display_math_are_emitted_without_escaping(self):
+        source = r'''# Math
+Inline $E^2 = p^2c^2 + m^2c^4$ equation.
+
+$$f(x) = \frac{1}{\sigma \sqrt{2\pi}}$$
+
+$$
+\begin{aligned}
+a &= b + c \\
+d &= e_f
+\end{aligned}
+$$'''
+        tex, warnings = self.convert(source)
+        self.assertIn(r"Inline $E^2 = p^2c^2 + m^2c^4$ equation.", tex)
+        self.assertIn("\\[\nf(x) = \\frac{1}{\\sigma \\sqrt{2\\pi}}\n\\]", tex)
+        self.assertIn("\\[\n\\begin{aligned}\na &= b + c \\\\\nd &= e_f\n\\end{aligned}\n\\]", tex)
+        self.assertNotIn(r"\textbackslash{}frac", tex)
+        self.assertNotIn(r"\textasciicircum{}", tex)
+        self.assertEqual(warnings, [])
+
+    def test_unclosed_display_math_is_emitted_with_warning(self):
+        tex, warnings = self.convert("# Math\n$$\nx^2 + y^2")
+        self.assertIn("\\[\nx^2 + y^2\n\\]", tex)
+        self.assertTrue(any("Unclosed display math block" in warning for warning in warnings))
+
     def test_all_heading_levels_can_be_frame_titles(self):
         sizes = (r"\Large", r"\large", r"\normalsize", r"\small", r"\footnotesize", r"\scriptsize")
         for level, size in enumerate(sizes, start=1):

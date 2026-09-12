@@ -228,10 +228,29 @@ spaces are not implemented.
 | `***bold italic***` or `___bold italic___` | Bold and emphasized text |
 | `**_bold italic_**`, `__*bold italic*__`, `*__bold italic__*`, or `_**bold italic**_` | Nested bold and emphasized text |
 | `` `code` `` | Monospaced text |
+| `$E=mc^2$` | Inline LaTeX math |
 | `[label](https://example.org)` | Hyperlink |
 | `[^key]` | Footnote reference |
 
 Inline formatting works in paragraphs, list items, link labels, and table cells.
+Inline math preserves its contents as LaTeX instead of escaping special
+characters.
+
+Display equations can use delimiters on one line or on separate lines:
+
+```markdown
+$$f(x) = \frac{1}{\sigma\sqrt{2\pi}}$$
+
+$$
+\begin{aligned}
+a &= b + c \\
+d &= e_f
+\end{aligned}
+$$
+```
+
+Display math is emitted using LaTeX's `\[` and `\]` delimiters. An unclosed
+display block extends to the end of its slide and produces a warning.
 
 Limitations:
 
@@ -244,8 +263,8 @@ Limitations:
 - Markdown backslash escapes are not implemented.
 
 Ordinary text has LaTeX special characters escaped, including `\`, `{`, `}`,
-`$`, `&`, `%`, `#`, `_`, `^`, and `~`. Raw LaTeX commands and mathematical
-expressions therefore do not pass through as executable LaTeX.
+`$`, `&`, `%`, `#`, `_`, `^`, and `~`. Raw LaTeX is preserved only inside the
+supported inline and display math delimiters.
 
 ## 5. Lists
 
