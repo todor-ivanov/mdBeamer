@@ -873,7 +873,7 @@ class BeamerEmitter:
         parts = [r"""\PassOptionsToPackage{table}{xcolor}
 \documentclass{beamer}
 \usepackage{hyperref}
-\usepackage{lmodern}  % Enables smooth font scaling
+% \usepackage{lmodern}  % Enables Latin Modern for smooth font scaling, but may conflict/override OpenSans and DejavuSansMono
 \usepackage{graphicx}
 \usepackage{multicol}
 \usepackage{ragged2e}
@@ -881,14 +881,25 @@ class BeamerEmitter:
 \newlength{\mdBeamerTableWidth}
 \newlength{\mdBeamerTableContentWidth}
 \newcommand{\mdBeamerHeaderLine}[2]{{#1\strut#2}}
+% ----------------------------------
 \usepackage{iftex}
 \ifPDFTeX
   \usepackage[utf8]{inputenc}
-  \usepackage[T1]{fontenc}
+  \usepackage[T2A,T1]{fontenc}
+  \usepackage{DejaVuSansMono}
+  \usepackage[default,scale=0.89]{opensans}
+  % \renewcommand{\familydefault}{\ttdefault}
 \else
   \usepackage{fontspec}
+  \defaultfontfeatures{Ligatures=TeX,Scale=0.89}
+  \usepackage{DejaVuSansMono}
+  \setmainfont{Open Sans}
+  \setsansfont{Open Sans}
   \setmonofont{DejaVu Sans Mono}
 \fi
+\usepackage[english,bulgarian]{babel}
+% ----------------------------------
+
 \usepackage{listings}
 """]
         if self.theme: parts.append(rf"\usetheme{{{escape_latex(self.theme)}}}")

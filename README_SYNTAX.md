@@ -252,6 +252,12 @@ $$
 Display math is emitted using LaTeX's `\[` and `\]` delimiters. An unclosed
 display block extends to the end of its slide and produces a warning.
 
+LuaLaTeX uses Open Sans for both Latin and Cyrillic text at a fixed scale, so a
+script change does not change the font family, weight, or metrics. Code uses
+DejaVu Sans Mono, and Babel supplies English and Bulgarian language handling.
+Cyrillic is supported in headings, paragraphs, lists, tables, and `\text{...}`
+inside equations.
+
 Limitations:
 
 - Strikethrough is unsupported.
@@ -864,7 +870,7 @@ The wrappers provide additional workflows:
 - [mdBeamer.sh](mdBeamer.sh): generates TeX beside the source, compiles with
   LuaLaTeX, and opens the PDF in Atril.
 - [preview.sh](preview.sh): writes under the source directory's `output/`, builds
-  with `latexmk -pdf`, and watches the Markdown source for changes. Image-only
+  with LuaLaTeX through `latexmk`, and watches the Markdown source for changes. Image-only
   changes do not trigger a rebuild.
 
 Changes to the converter itself also do not trigger a running preview. After

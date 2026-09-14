@@ -183,12 +183,12 @@ Literal LaTeX-sensitive characters are escaped: \ { } $ & % # _ ^ ~.
 
 Inline code also preserves these characters: `a_b = {x: 50%}; $ & # \`.
 
-Inline math preserves LaTeX syntax: $E^2 = p^2c^2 + m^2c^4$.
+Inline math preserves LaTeX syntax: $E^2 = p^2c^2 + m^2c^4$. Кирилица remains visible.
 
 $$
 \begin{aligned}
 f(x) &= \frac{1}{\sigma\sqrt{2\pi}} \\
-g(x) &= x_i^2
+g(x) &= x_i^2 + \text{Хигс сектор}
 \end{aligned}
 $$
 

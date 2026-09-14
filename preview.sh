@@ -52,7 +52,7 @@ build() {
         return 1
     fi
 
-    if ! latexmk -pdf -interaction=nonstopmode -outdir="$outDir" "$texFile"; then
+    if ! latexmk -lualatex -interaction=nonstopmode -outdir="$outDir" "$texFile"; then
         echo "PDF build failed; waiting for another change." >&2
         return 1
     fi
@@ -86,4 +86,3 @@ while true; do
         build || true
     fi
 done
-

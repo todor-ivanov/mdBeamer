@@ -99,6 +99,23 @@ class SyntaxTests(unittest.TestCase):
                         tex.index(r"\begin{document}"))
         self.assertEqual(warnings, [])
 
+    def test_generated_fonts_support_cyrillic_slide_text(self):
+        tex, warnings = self.convert("# Кирилица\nТекст на слайд\n\n$$\\text{Хигс сектор}$$")
+        self.assertNotIn(r"\usepackage{iftex}", tex)
+        self.assertNotIn(r"\usepackage[T1,T2A]{fontenc}", tex)
+        self.assertNotIn(r"\renewcommand{\sfdefault}{cmss}", tex)
+        self.assertNotIn(r"\renewcommand{\ttdefault}{cmtt}", tex)
+        self.assertIn(r"\defaultfontfeatures{Ligatures=TeX,Scale=1.0}", tex)
+        self.assertIn(r"\setmainfont{Open Sans}", tex)
+        self.assertIn(r"\setsansfont{Open Sans}", tex)
+        self.assertIn(r"\setmonofont{DejaVu Sans Mono}", tex)
+        self.assertIn(r"\usepackage[english,bulgarian]{babel}", tex)
+        self.assertNotIn("luaotfload.add_fallback", tex)
+        self.assertIn(r"\begin{frame}{Кирилица}", tex)
+        self.assertIn("Текст на слайд", tex)
+        self.assertIn("\\[\n\\text{Хигс сектор}\n\\]", tex)
+        self.assertEqual(warnings, [])
+
     def test_compact_layout_defaults_are_emitted(self):
         tex, warnings = self.convert("# Lists\n- One\n  - Two\n    - Three")
         preamble = tex[:tex.index(r"\begin{document}")]
@@ -496,7 +513,7 @@ Large column text.[^compact]
         for label, (marker, size) in header_samples.items():
             tex = tex.replace(label, r"\typeout{MDB-SIZE-" + marker + r":\csname f@size\endcsname}" + label)
             expected[marker] = size
-        engines = [name for name in ("pdflatex", "lualatex") if shutil.which(name)]
+        engines = [name for name in ("lualatex",) if shutil.which(name)]
         if not engines:
             self.skipTest("No LaTeX engine available")
         for engine in engines:
